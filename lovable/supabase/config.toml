@@ -1,0 +1,3 @@
+[functions.infra-monitor]
+verify_jwt = false
+# Host tokens are verified inside the handler. Admin routes explicitly validate user JWT + admin role.

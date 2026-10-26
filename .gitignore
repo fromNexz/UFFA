@@ -1,0 +1,6 @@
+/dist/
+/runtime/
+node_modules/
+.env
+*.token
+*.log

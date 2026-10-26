@@ -1,0 +1,29 @@
+{
+  "schema_version": 2,
+  "api_base_url": "https://SEU-PROJETO.supabase.co/functions/v1/infra-monitor",
+  "intervals": {
+    "metrics": 3600,
+    "ips": 3600,
+    "processes": 3600,
+    "poll": 60,
+    "heartbeat": 300
+  },
+  "http_timeout_seconds": 15,
+  "probe_timeout_ms": 1500,
+  "catalog": [
+    {
+      "id": "frcaixa",
+      "kind": "service",
+      "service_name": "FrCaixaMonitor",
+      "display_name_pattern": "FrCaixa",
+      "executable": "C:\\FrCaixaMonitor\\monitor.exe",
+      "allowed_operations": [
+        "start",
+        "stop",
+        "restart"
+      ],
+      "allow_force": false,
+      "health_tcp_port": null
+    }
+  ]
+}

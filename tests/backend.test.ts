@@ -1,0 +1,15 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {uuid,text,intervals,command,ports,stamp,observation,sha256,deriveToken,equalDigest,defaults,randomToken} from '../lovable/supabase/functions/infra-monitor/validation.ts';
+const id='aabbccdd-1122-4333-8444-123456789abc';
+test('UUID rejects paths and null',()=>{assert.equal(uuid(id),id);for(const v of ['../../x',null,'not-a-uuid'])assert.throws(()=>uuid(v));});
+test('reason required and bounded',()=>{for(const v of [null,'  ','a'.repeat(501)])assert.throws(()=>text(v,3,500));assert.equal(text(' motivo ',3,500),'motivo');});
+test('separate intervals preserve hourly collection',()=>{assert.deepEqual(intervals(defaults),defaults);assert.throws(()=>intervals({...defaults,heartbeat:1}));assert.throws(()=>intervals({...defaults,metrics:60.5}));});
+test('only enumerated operations and catalog IDs',()=>{const c={host_id:id,target_id:'frcaixa',operation:'restart',reason:'Teste controlado'};assert.equal(command(c).operation,'restart');for(const operation of ['powershell','cmd','exec'])assert.throws(()=>command({...c,operation}));assert.throws(()=>command({...c,target_id:'C:\\Windows\\cmd.exe'}));});
+test('ports bounded and deduplicated',()=>{assert.deepEqual(ports([443,443,80]),[443,80]);for(const v of [[0],[65536],['80'],Array(33).fill(80)])assert.throws(()=>ports(v));});
+test('future and malformed timestamps rejected',()=>{assert.throws(()=>stamp('invalid'));assert.throws(()=>stamp(new Date(Date.now()+3600000).toISOString()));});
+test('406 on incompatible collection schema',()=>{assert.throws(()=>observation({schema_version:1},'metrics'),e=>(e as any).status===406);});
+test('IP observation validates boolean status',()=>{const b={schema_version:2,observation_id:id,kind:'ips',checked_at:new Date().toISOString(),ips:[{ip:'192.168.1.1',is_up:true,checked_at:new Date().toISOString()}]};assert.equal(observation(b,'ips'),b);assert.throws(()=>observation({...b,ips:[{...b.ips[0],is_up:'true'}]},'ips'));});
+test('process unknown distinct from down and healthy',()=>{const b={schema_version:2,observation_id:id,kind:'processes',checked_at:new Date().toISOString(),targets:[{target_id:'frcaixa',is_running:null,health:'unknown',checked_at:new Date().toISOString()}]};assert.equal(observation(b,'processes'),b);assert.throws(()=>observation({...b,targets:[{...b.targets[0],health:'magic'}]},'processes'));});
+test('enrollment token deterministic only for same secret/code/request',async()=>{const secret='a'.repeat(64),code=randomToken();const a=await deriveToken(secret,code,id);assert.equal(a,await deriveToken(secret,code,id));assert.notEqual(a,await deriveToken(secret,code,crypto.randomUUID()));assert.notEqual(a,await deriveToken('b'.repeat(64),code,id));assert.match(a,/^[0-9a-f]{64}$/);await assert.rejects(deriveToken('short',code,id));});
+test('standard SHA256 vector and constant-work digest compare',async()=>{const h=await sha256('abc');assert.equal(h,'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');assert.ok(equalDigest(h,h));assert.ok(!equalDigest(h,'a'.repeat(64)));assert.ok(!equalDigest(h,''));});

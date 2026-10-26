@@ -1,0 +1,19 @@
+{
+  "name": "uffa-infra-monitor",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "tsx --test tests/backend.test.ts tests/database.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "2.118.0",
+    "@types/node": "22.15.3",
+    "@types/react": "19.1.2",
+    "react": "19.1.0",
+    "tsx": "4.20.5",
+    "typescript": "5.8.3",
+    "@electric-sql/pglite": "0.5.11"
+  }
+}
