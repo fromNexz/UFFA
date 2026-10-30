@@ -41,6 +41,16 @@ public static class Json {
     public static object[] Array(Dictionary<string,object>d,string k) { var a=Get(d,k) as object[];return a??new object[0]; }
     public static bool Bool(Dictionary<string,object>d,string k,bool fallback=false) { return Convert.ToBoolean(Get(d,k,fallback),CultureInfo.InvariantCulture); }
 }
+public static class CatalogPolicy {
+    public static bool IsMonitorObserver(Dictionary<string,object>t) { return Json.Str(t,"kind")=="process"&&String.Equals(Json.Str(t,"process_name"),"monitor.exe",StringComparison.OrdinalIgnoreCase); }
+    public static void AssertControlAllowed(Dictionary<string,object>t) {
+        foreach(string key in new[]{"id","service_name","executable","process_name"}) {
+            string value=Json.Str(t,key).Replace('\\','/');string name=value.Substring(value.LastIndexOf('/')+1);
+            if(value.IndexOf("frcaixa",StringComparison.OrdinalIgnoreCase)>=0||String.Equals(name,"monitor.exe",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("Aplicativo ERP/PDV protegido: somente monitoramento.");
+        }
+        if(Json.Str(t,"process_name")!="")throw new InvalidOperationException("Observador por nome nao permite controle.");
+    }
+}
 public static class Disk {
     public static Dictionary<string,object> Read(string path) { return Json.Obj(Json.Parse(File.ReadAllText(path))); }
     public static void Write(string path,object value) {

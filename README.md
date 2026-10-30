@@ -1,4 +1,4 @@
-# Infra Monitor UFFA 2.0
+# Infra Monitor UFFA 2.0.1
 
 Nova implementação para monitorar lojas Windows e receber operações administrativas por consulta HTTPS. Desenvolvida a partir da documentação Lovable fornecida, sem os códigos antigos. Não aplica alterações no banco ou nos servidores automaticamente.
 
@@ -11,6 +11,10 @@ Nova implementação para monitorar lojas Windows e receber operações administ
 - Testes do núcleo, contratos, autenticação de operações no banco, isolamento, RLS e deduplicação.
 
 **RAM:** meta preferencial menor que 50 MB; critério obrigatório menor que 100 MB, tanto working set quanto memória privada, incluindo NSSM se usado. Ainda não medido no Windows. Existe reinício preventivo ao observar 80 MB privados ou 90 MB de working set; isso NÃO é um limite rígido do sistema operacional nem prova de atendimento. Medir por pelo menos 65 minutos antes de distribuir.
+
+## Instalação rápida atual
+
+Use o iniciador web descrito em [INSTALACAO-WEB.md](docs/INSTALACAO-WEB.md). O agente atual observa o FrCaixaMonitor/monitor.exe **somente para leitura**, sem operações de controle. Pacotes 2.0.0 e documentação de entrega original permanecem como histórico; o pacote novo é 2.0.1. Instalações já existentes não são substituídas automaticamente pelo iniciador.
 
 ## Começar
 

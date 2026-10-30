@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 namespace Uffa.InfraMonitor {
 public static class Program {
-    public const string Version="2.0.0";
+    public const string Version="2.0.1";
     static bool stop;
     public static int Main(string[] args) {
         if(Array.IndexOf(args,"--service")>=0)return WindowsServiceHost.Run(args);
@@ -56,8 +56,8 @@ public static class Program {
                     if(Json.Int(remote,"schema_version",0)!=2)throw new InvalidDataException("Backend v2 obrigatório.");
                     intervals.Apply(Json.Obj(remote["intervals"]));ips=Json.Array(remote,"ips");if(ips.Length>128)throw new InvalidDataException();
                     string fingerprint=Json.Stringify(new {intervals=remote["intervals"],ips=ips});if(configFingerprint!=fingerprint){next["ips"]=now;configFingerprint=fingerprint;Disk.Write(cache,new {intervals=remote["intervals"],ips=ips});}configured=true;failures=0;
-                    foreach(object command in Json.Array(remote,"pending_commands")){if(stop)break;var result=journal.Execute(Json.Obj(command),c=>WindowsPlatform.Operate(catalog,c));next["processes"]=0;try{api.Call("agent-action-result","POST",new {command_id=result["command_id"],result=result["result"],message=result["message"]});journal.Ack(result);}catch(ApiError e){log.Event("result_"+ApiError.Kind(e.Status));}}
-                } catch(ApiError e){log.Event("poll_"+ApiError.Kind(e.Status));failures++;} catch {log.Event("poll_contract_or_command_error");failures++;}
+                    foreach(object command in Json.Array(remote,"pending_commands")){if(stop)break;var result=journal.Execute(Json.Obj(command),c=>WindowsPlatform.Operate(catalog,c));next["processes"]=0;try{api.Call("agent-action-result","POST",new {command_id=result["command_id"],result=result["result"],message=result["message"]});journal.Ack(result);}catch(ApiError e){log.Event("result_"+"http_"+e.Status+"_"+ApiError.Kind(e.Status));}}
+                } catch(ApiError e){log.Event("poll_"+"http_"+e.Status+"_"+ApiError.Kind(e.Status));failures++;} catch {log.Event("poll_contract_or_command_error");failures++;}
                 if(failures>0)next["poll"]=now+Math.Min(900,intervals.Values["poll"]*Math.Pow(2,Math.Min(4,failures-1)));
             }
             if(stop)break;
@@ -74,7 +74,7 @@ public static class Program {
                             if(File.Exists(path)&&Json.Str(Disk.Read(path),"observation_id")==Json.Str(body,"observation_id"))File.Delete(path);
                         }
                     }
-                }catch(ApiError e){log.Event("outbox_"+ApiError.Kind(e.Status));}catch{log.Event("outbox_failed");}
+                }catch(ApiError e){log.Event("outbox_"+"http_"+e.Status+"_"+ApiError.Kind(e.Status));}catch{log.Event("outbox_failed");}
             }
             if(stop)break;
             if(now>=next["heartbeat"]) {
@@ -84,7 +84,7 @@ public static class Program {
                         api.Call("agent-heartbeat","POST",new {schema_version=2,at=Disk.Now(),agent_version=Version,hostname=Environment.MachineName,working_set_bytes=process.WorkingSet64,private_bytes=process.PrivateMemorySize64,catalog=CatalogSummary(catalog)});
                     }
                     Disk.Write(Path.Combine(root,"state","health.json"),new {version=Version,last_success_at=Disk.Now()});
-                }catch(ApiError e){log.Event("heartbeat_"+ApiError.Kind(e.Status));}catch{log.Event("heartbeat_failed");}
+                }catch(ApiError e){log.Event("heartbeat_"+"http_"+e.Status+"_"+ApiError.Kind(e.Status));}catch{log.Event("heartbeat_failed");}
             }
             if(worker!=null&&worker.IsCompleted){if(worker.IsFaulted)log.Event("collection_failed");worker.Dispose();worker=null;GC.Collect(0);}
             if(configured&&worker==null) {

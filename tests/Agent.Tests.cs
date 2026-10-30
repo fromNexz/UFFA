@@ -41,6 +41,12 @@ public static class AgentTests {
   test("Journal survives new process object",()=>{var c=Command(host);journal.Execute(c,x=>"ok");var other=new CommandJournal(dir,host);int count=0;other.Execute(c,x=>{count++;return "bad";});Assert(count==0,"Restart replay");});
   test("SHA256 matches standard vector",()=>Assert(Disk.Sha256("abc")=="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","Hash"));
   test("Logs rotate with bounded file count",()=>{var logger=new AgentLog(dir);for(int i=0;i<12;i++){File.WriteAllText(Path.Combine(dir,"logs","agent.log"),new string('x',1048577));logger.Event("test_event");}Assert(Directory.GetFiles(Path.Combine(dir,"logs")).Length==6,"Unbounded logs");});
+  test("FrCaixa service cannot be controlled even with legacy permissions",()=>Throws(()=>CatalogPolicy.AssertControlAllowed(new Dictionary<string,object>{{"id","other"},{"service_name","FrCaixaMonitor"}}),"ERP control accepted"));
+  test("Monitor executable cannot be controlled by path",()=>Throws(()=>CatalogPolicy.AssertControlAllowed(new Dictionary<string,object>{{"id","app"},{"executable",@"C:\FrCaixaMonitor\monitor.exe"}}),"Monitor control accepted"));
+  test("Monitor executable protected outside usual directory",()=>Throws(()=>CatalogPolicy.AssertControlAllowed(new Dictionary<string,object>{{"id","app"},{"executable",@"D:\ERP\MONITOR.EXE"}}),"Alternate monitor control accepted"));
+  test("Monitor observer works without executable path",()=>Assert(CatalogPolicy.IsMonitorObserver(new Dictionary<string,object>{{"kind","process"},{"process_name","monitor.exe"}}),"Observer missing"));
+  test("Name-based observer cannot become command target",()=>Throws(()=>CatalogPolicy.AssertControlAllowed(new Dictionary<string,object>{{"id","app"},{"process_name","other.exe"}}),"Name observer control accepted"));
+  test("Unrelated explicit target not blocked by ERP guard",()=>CatalogPolicy.AssertControlAllowed(new Dictionary<string,object>{{"id","test-service"},{"executable",@"C:\Test\app.exe"}}));
   return passed.ToArray();
  }
 }

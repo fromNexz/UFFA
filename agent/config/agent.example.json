@@ -13,15 +13,9 @@
   "catalog": [
     {
       "id": "frcaixa",
-      "kind": "service",
-      "service_name": "FrCaixaMonitor",
-      "display_name_pattern": "FrCaixa",
-      "executable": "C:\\FrCaixaMonitor\\monitor.exe",
-      "allowed_operations": [
-        "start",
-        "stop",
-        "restart"
-      ],
+      "kind": "process",
+      "process_name": "monitor.exe",
+      "allowed_operations": [],
       "allow_force": false,
       "health_tcp_port": null
     }

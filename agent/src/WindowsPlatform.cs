@@ -55,14 +55,14 @@ public static class WindowsPlatform {
         foreach(var p in Query("SELECT ProcessId,ExecutablePath,CreationDate FROM Win32_Process WHERE Name='"+name+"'","ProcessId","ExecutablePath","CreationDate"))if(String.Equals(Convert.ToString(p["ExecutablePath"]),exe,StringComparison.OrdinalIgnoreCase))result.Add(p);return result;
     }
     public static Dictionary<string,object> Status(Dictionary<string,object>t) {
-        string kind=Json.Str(t,"kind");if(kind!="service"&&kind!="process")throw new InvalidDataException("Tipo inválido.");var svc=kind=="service"?Service(t):null;var processes=Processes(t);bool running=svc!=null?Json.Str(svc,"State")=="Running":processes.Count>0;
+        string kind=Json.Str(t,"kind");if(kind!="service"&&kind!="process")throw new InvalidDataException("Tipo inválido.");var svc=kind=="service"?Service(t):null;var processes=CatalogPolicy.IsMonitorObserver(t)?Query("SELECT ProcessId,ExecutablePath,CreationDate FROM Win32_Process WHERE Name='monitor.exe'","ProcessId","ExecutablePath","CreationDate"):Processes(t);bool running=svc!=null?Json.Str(svc,"State")=="Running":processes.Count>0;
         var details=new List<object>();foreach(var p in processes){DateTime start=ManagementDateTimeConverter.ToDateTime(Json.Str(p,"CreationDate"));details.Add(new {pid=Convert.ToInt32(p["ProcessId"]),executable=p["ExecutablePath"],started_at=start.ToUniversalTime().ToString("o"),uptime_seconds=(long)(DateTime.Now-start).TotalSeconds});}
         int port=Json.Int(t,"health_tcp_port",0);string health=!running?"down":port>0?(Tcp("127.0.0.1",port,1000)?"healthy":"unhealthy"):"unknown";
         return new Dictionary<string,object>{{"target_id",Json.Str(t,"id")},{"kind",kind},{"is_running",running},{"health",health},{"checked_at",Disk.Now()},{"service_name",svc==null?null:svc["Name"]},{"processes",details}};
     }
     public static string Operate(object[] catalog,Dictionary<string,object>command) {
         Dictionary<string,object>t=null;int matches=0;foreach(object o in catalog){var entry=Json.Obj(o);if(Json.Str(entry,"id")==Json.Str(command,"target_id")){t=entry;matches++;}}
-        if(matches!=1)throw new InvalidDataException("Alvo não autorizado.");string op=Json.Str(command,"operation");bool allowed=false;foreach(object o in Json.Array(t,"allowed_operations"))if(Convert.ToString(o)==op)allowed=true;
+        if(matches!=1)throw new InvalidDataException("Alvo não autorizado.");CatalogPolicy.AssertControlAllowed(t);string op=Json.Str(command,"operation");bool allowed=false;foreach(object o in Json.Array(t,"allowed_operations"))if(Convert.ToString(o)==op)allowed=true;
         if(!allowed||(op!="start"&&op!="stop"&&op!="restart"&&op!="kill")||(op=="kill"&&!Json.Bool(t,"allow_force")))throw new InvalidDataException("Operação não autorizada.");
         string exe=Executable(t);if(!File.Exists(exe))throw new FileNotFoundException();
         if(Json.Str(t,"kind")=="service"&&op!="kill") {

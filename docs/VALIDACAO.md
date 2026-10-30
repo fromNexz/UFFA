@@ -37,3 +37,7 @@ Não há garantia de execução exatamente uma vez em toda falha possível: um c
 ## Próximo passo
 
 Aplicar a integração de `docs/LOVABLE.md` em homologação e executar toda a matriz de `docs/TESTES-WINDOWS.md` em um servidor piloto. Só promover para as demais lojas depois de confirmar memória, migração, atualização e operações no ambiente real.
+
+## Atualização 2.0.1 (30/10/2026)
+
+27 testes do núcleo e 6 verificações dos scripts passaram. O código de produção foi compilado contra .NET Framework 4.7.2/C# 5/x86. Novidade: observador por nome de monitor.exe, catálogo sem controle remoto e guarda ERP/PDV no runtime. Logs de API incluem status numérico. A homologação Windows e RAM continuam pendentes. Ver INSTALACAO-WEB.md.

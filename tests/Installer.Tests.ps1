@@ -33,4 +33,13 @@ try {
     if (!$failed) { throw 'Identidade incompleta foi aceita.' }
     Write-Host 'PASS identidade incompleta recusada'
 } finally { Remove-Item $work -Recurse -Force }
-Write-Host '5 verificações de scripts concluídas; instalação Windows não executada.'
+. (Join-Path $Repository 'scripts/ReadOnlyConfig.ps1')
+$cfg=@([pscustomobject]@{id='frcaixa';kind='service';service_name='FrCaixaMonitor';allowed_operations=@('restart')},[pscustomobject]@{id='sql';kind='service';service_name='SQL';allowed_operations=@('stop')})
+$catalog=ConvertTo-MonitoringOnlyCatalog $cfg
+if ($catalog.Count -ne 2 -or @($catalog|Where-Object { $_.id -eq 'frcaixa' -and $_.kind -eq 'process' -and $_.process_name -eq 'monitor.exe' }).Count -ne 1) { throw 'Catalogo readonly incorreto.' }
+if (@($catalog|Where-Object { $_.allowed_operations.Count -gt 0 -or $_.allow_force }).Count -gt 0) { throw 'Permissao de controle sobreviveu.' }
+if ($cfg[0].allowed_operations[0] -ne 'restart') { throw 'Transformacao alterou objeto original.' }
+$twice=ConvertTo-MonitoringOnlyCatalog $catalog
+if ($twice.Count -ne 2) { throw 'Observador duplicado.' }
+Write-Host 'PASS transformacao somente-monitoramento preserva outros alvos, remove operacoes e e repetivel'
+Write-Host '6 verificações de scripts concluídas; instalação Windows não executada.'

@@ -17,6 +17,8 @@ try {
     Copy-Item (Join-Path $Repository 'scripts') (Join-Path $stage 'scripts') -Recurse
     [void][IO.Directory]::CreateDirectory((Join-Path $stage 'agent/config'))
     Copy-Item (Join-Path $Repository 'agent/config/agent.example.json') (Join-Path $stage 'agent/config/agent.example.json')
+    [void][IO.Directory]::CreateDirectory((Join-Path $stage 'maintenance'))
+    Copy-Item (Join-Path $Repository 'maintenance/legacy-cleanup') (Join-Path $stage 'maintenance/legacy-cleanup') -Recurse
     Copy-Item (Join-Path $Repository 'docs') (Join-Path $stage 'docs') -Recurse
     Copy-Item (Join-Path $Repository 'README.md') (Join-Path $stage 'README.md')
     $files=@(Get-ChildItem $stage -File -Recurse|ForEach-Object { @{path=$_.FullName.Substring($stage.Length+1).Replace('\','/');sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()} })
