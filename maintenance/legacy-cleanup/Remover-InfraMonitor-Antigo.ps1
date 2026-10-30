@@ -97,6 +97,96 @@ function Protect-Backup([string]$Pasta) {
     }
     Set-Acl -LiteralPath $Pasta -AclObject $acl
 }
+function Assert-PastaAutorizada([string]$Pasta) {
+    if (![string]::Equals($Pasta.TrimEnd('\'),'C:\infra-monitor',[StringComparison]::OrdinalIgnoreCase)) { throw 'Remocao de pasta permitida somente para C:\infra-monitor.' }
+}
+function Test-ReferenciaPasta([string]$Texto) {
+    return ($Texto.Replace('/','\') -match '(?i)(?<![\w\\])C:\\infra-monitor(?=\\|["''\s]|$)')
+}
+function Get-ArvoreSegura([string]$Pasta) {
+    $raiz=Get-Item -LiteralPath $Pasta -Force
+    if ($raiz -isnot [IO.DirectoryInfo]) { throw 'Caminho de instalacao nao e uma pasta. Preservado.' }
+    $fila=New-Object 'Collections.Generic.Queue[IO.DirectoryInfo]'
+    $fila.Enqueue($raiz)
+    while ($fila.Count -gt 0) {
+        $dir=$fila.Dequeue()
+        if ($dir.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Link/junction encontrado. Pasta preservada para nao atingir outro local.' }
+        if ($dir.Name -match '(?i)frcaixa') { throw 'Diretorio FrCaixa encontrado. Pasta preservada.' }
+        $dir
+        foreach ($item in @(Get-ChildItem -LiteralPath $dir.FullName -Force)) {
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Link/junction encontrado. Pasta preservada para nao atingir outro local.' }
+            if ($item -is [IO.DirectoryInfo]) { $fila.Enqueue($item) }
+            else {
+                if ($item.Name -ieq 'monitor.exe') { throw 'monitor.exe encontrado dentro da pasta. ERP/PDV protegido; remocao cancelada.' }
+                $item
+            }
+        }
+    }
+}
+function Assert-SemReferenciasPasta($Servicos,$Tarefas,$Processos,[scriptblock]$ParametrosNssm) {
+    foreach ($servico in @($Servicos)) {
+        if (Test-ReferenciaPasta ([string]$servico.PathName)) { throw ('Servico ainda referencia C:\infra-monitor: '+$servico.Name+'. Pasta preservada.') }
+        if ($servico.PathName -match '(?i)nssm\.exe' -and $ParametrosNssm) {
+            foreach ($value in @(& $ParametrosNssm $servico.Name)) {
+                if (Test-ReferenciaPasta ([string]$value)) { throw ('NSSM ainda referencia C:\infra-monitor: '+$servico.Name+'. Pasta preservada.') }
+            }
+        }
+    }
+    foreach ($tarefa in @($Tarefas)) {
+        foreach ($acao in @($tarefa.Actions)) {
+            foreach ($campo in @('Execute','Arguments','WorkingDirectory')) {
+                if ($acao.PSObject.Properties[$campo] -and (Test-ReferenciaPasta ([string]$acao.$campo))) { throw ('Tarefa ainda referencia C:\infra-monitor: '+$tarefa.TaskPath+$tarefa.TaskName+'. Pasta preservada.') }
+            }
+        }
+    }
+    foreach ($proc in @($Processos)) {
+        foreach ($campo in @('ExecutablePath','CommandLine')) {
+            if ($proc.PSObject.Properties[$campo] -and (Test-ReferenciaPasta ([string]$proc.$campo))) { throw ('Processo ainda referencia C:\infra-monitor: PID '+$proc.ProcessId+'. Pasta preservada.') }
+        }
+    }
+}
+function Retirar-PastaAntiga([string]$Pasta,[string]$Backup) {
+    Assert-PastaAutorizada $Pasta
+    if (!(Test-Path -LiteralPath $Pasta)) { return }
+    $itens=@(Get-ArvoreSegura $Pasta)
+    Assert-SemReferenciasPasta -Servicos @(Get-CimInstance Win32_Service) -Tarefas @(Get-ScheduledTask) -Processos @(Get-CimInstance Win32_Process) -ParametrosNssm {
+        param($Nome)
+        $chave='HKLM:\SYSTEM\CurrentControlSet\Services\'+$Nome+'\Parameters'
+        if (Test-Path -LiteralPath $chave) {
+            $dados=Get-ItemProperty -LiteralPath $chave
+            foreach ($campo in @('Application','AppParameters','AppDirectory')) {
+                if ($dados.PSObject.Properties[$campo]) { [string]$dados.$campo }
+            }
+        }
+    }
+    # Move NTFS no mesmo volume: retira o caminho original e preserva todo o conteudo.
+    # Nenhum Remove-Item -Recurse ou seguimento de links; o backup fica fora da pasta antiga.
+    $destino=Join-Path $Backup 'infra-monitor'
+    if (Test-Path -LiteralPath $destino) { throw 'Destino de backup ja existe. Pasta antiga preservada.' }
+    & icacls.exe $Pasta /save (Join-Path $Backup 'infra-monitor-acls.txt') /t /q | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel salvar as permissoes originais. Pasta preservada.' }
+    foreach ($item in $itens) {
+        if ($item -is [IO.DirectoryInfo]) { Protect-Backup $item.FullName }
+        else {
+            $acl=New-Object Security.AccessControl.FileSecurity
+            $acl.SetAccessRuleProtection($true,$false)
+            foreach ($sid in @('S-1-5-18','S-1-5-32-544')) {
+                $identidade=New-Object Security.Principal.SecurityIdentifier($sid)
+                $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($identidade,'FullControl','Allow'))
+            }
+            Set-Acl -LiteralPath $item.FullName -AclObject $acl
+        }
+    }
+    # Conferir novamente links/ERP antes da movimentacao.
+    [void]@(Get-ArvoreSegura $Pasta)
+    $local=Get-Location
+    if ($local.Provider.Name -eq 'FileSystem' -and ($local.Path -ieq $Pasta -or $local.Path.StartsWith($Pasta+'\',[StringComparison]::OrdinalIgnoreCase))) { Set-Location -LiteralPath ($env:SystemDrive+'\') }
+    [Environment]::CurrentDirectory=$env:SystemDrive+'\'
+    [IO.Directory]::Move($Pasta,$destino)
+    if ((Test-Path -LiteralPath $Pasta) -or !(Test-Path -LiteralPath $destino)) { throw 'Nao foi possivel confirmar a retirada da pasta.' }
+    Write-Host ('C:\infra-monitor retirada. Conteudo preservado no backup protegido: '+$destino)
+}
+
 function Stop-ProcessoAntigo($Registro) {
     $processo=$null
     try {
@@ -125,13 +215,18 @@ if (!$administrador.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 $servicos=@(Get-ServicosAntigos)
 $tarefas=@(Get-TarefasAntigas)
 $processos=@(Get-ProcessosAntigos)
+$pastaAntiga='C:\infra-monitor'
+$temPasta=Test-Path -LiteralPath $pastaAntiga
 Write-Host '=== Agente antigo identificado ==='
 Write-Host ('Servicos: '+$servicos.Count+' | Tarefas: '+$tarefas.Count+' | Processos: '+$processos.Count)
 foreach ($s in $servicos) { Write-Host ('Servico: '+$s.Name) }
 foreach ($t in $tarefas) { Write-Host ('Tarefa: '+$t.TaskPath+$t.TaskName) }
 foreach ($p in $processos) { Write-Host ('Processo: '+$p.Name+' PID='+$p.ProcessId) }
+if ($temPasta) { Write-Host 'Pasta C:\infra-monitor tambem sera retirada, com backup protegido e verificacao de vinculos.' }
 if (!$Aplicar) { Write-Host 'Somente consulta. Para desinstalar: execute este mesmo arquivo com -Aplicar.';return }
-if ($servicos.Count+$tarefas.Count+$processos.Count -eq 0) { Write-Host 'Nenhum componente antigo reconhecido. Nenhuma alteracao realizada.';return }
+if ($servicos.Count+$tarefas.Count+$processos.Count -eq 0 -and !$temPasta) { Write-Host 'Nenhum componente antigo reconhecido. Nenhuma alteracao realizada.';return }
+
+if ($temPasta) { Assert-PastaAutorizada $pastaAntiga;[void]@(Get-ArvoreSegura $pastaAntiga) }
 
 $backup=Join-Path $env:ProgramData ('InfraMonitor-Remocao-'+[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,6))
 [void][IO.Directory]::CreateDirectory($backup)
@@ -152,7 +247,7 @@ foreach ($s in $servicos) {
     & reg.exe export ('HKLM\SYSTEM\CurrentControlSet\Services\'+$s.Name) (Join-Path $backup ('servico-'+$i+'.reg')) /y | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Backup do servico falhou. Nenhuma remocao iniciada.' }
 }
-$resumo=@{servicos=@($servicos|Select-Object Name,State,StartMode);tarefas=@($tarefas|Select-Object TaskName,TaskPath,State);processos=@($processos|Select-Object Name,ProcessId);pastas_preservadas=$script:RaizesAntigas}
+$resumo=@{servicos=@($servicos|Select-Object Name,State,StartMode);tarefas=@($tarefas|Select-Object TaskName,TaskPath,State);processos=@($processos|Select-Object Name,ProcessId);pastas_preservadas=@('C:\ProgramData\InfraMonitor','C:\infra-monitor-unificado');pasta_a_retirar=$pastaAntiga}
 [IO.File]::WriteAllText((Join-Path $backup 'inventario.json'),(ConvertTo-Json -InputObject $resumo -Depth 8),$utf8)
 
 # Desativar watchdog/relancadores ANTES de parar o coletor.
@@ -186,7 +281,8 @@ foreach ($s in $servicos) {
 Start-Sleep -Seconds 2
 $sv=@(Get-ServicosAntigos);$ta=@(Get-TarefasAntigas);$pr=@(Get-ProcessosAntigos)
 if ($sv.Count+$ta.Count+$pr.Count -gt 0) { throw ('Ainda existem componentes antigos ou servico marcado para exclusao. Feche services.msc e verifique novamente. Backup: '+$backup) }
+if ($temPasta) { Retirar-PastaAntiga -Pasta $pastaAntiga -Backup $backup }
 Write-Host 'Concluido: servicos, tarefas e processos antigos reconhecidos removidos.'
 Write-Host ('Backup de inicializacao: '+$backup)
-Write-Host 'Pastas e credenciais preservadas. FrCaixaMonitor nao foi alterado. Nenhum registro foi excluido do Lovable.'
+Write-Host 'C:\ProgramData\InfraMonitor e agente novo preservados. FrCaixaMonitor nao foi alterado. Nenhum registro foi excluido do Lovable.'
 Write-Host 'Reexecute sem -Aplicar apos reiniciar o Windows para verificar se alguma politica externa recria o agente.'
