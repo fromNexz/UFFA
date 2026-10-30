@@ -18,6 +18,6 @@ Relógio incorreto: a exceção `server_received` é uma adaptação feita no Lo
 
 ## Validação
 
-27 testes do núcleo e 6 verificações de scripts passaram no Linux/PowerShell 7, incluindo bloqueios ERP/PDV e transformação de catálogo idempotente. Compilação C# 5 / .NET Framework 4.7.2 / x86 passou. O iniciador web tem testes separados das decisões de instalação/retomada e validação de URL.
+27 testes do núcleo e 6 verificações de scripts passaram no Linux/PowerShell 7, incluindo bloqueios ERP/PDV e transformação de catálogo idempotente. Compilação C# 5 / .NET Framework 4.7.2 / x86 passou. 12 testes do iniciador web passaram nas decisões de instalação/retomada e validação de URL (45 cenários/verificações locais nesta atualização).
 
 Serviço Windows, coleta WMI por nome, fluxo de cadastro real e memória <50 MB preferencial/<100 MB obrigatória ainda exigem loja piloto autorizada. O novo iniciador reduz etapas de instalação; não constitui prova de homologação no Windows.

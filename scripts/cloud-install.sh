@@ -35,4 +35,5 @@ npm test
 npm run typecheck
 "$pwsh_dir/pwsh" -NoProfile -File tests/Run-AgentTests.ps1
 "$pwsh_dir/pwsh" -NoProfile -File tests/Installer.Tests.ps1
+"$pwsh_dir/pwsh" -NoProfile -File tests/WebInstall.Tests.ps1
 "$pwsh_dir/pwsh" -NoProfile -File tests/Compile-Framework.ps1 -ReferenceDirectory /workspace/tools/net472/build/.NETFramework/v4.7.2
