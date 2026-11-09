@@ -16,7 +16,7 @@ public sealed class WindowsServiceHost:ServiceBase {
     protected override void OnStop(){RequestAdditionalTime(60000);Program.RequestStop();if(thread!=null&&!thread.Join(55000))Environment.Exit(75);}
 }
 public static class WindowsPlatform {
-    static List<Dictionary<string,object>> Query(string query,params string[] props) {
+    internal static List<Dictionary<string,object>> Query(string query,params string[] props) {
         var result=new List<Dictionary<string,object>>();
         using(var search=new ManagementObjectSearcher(query))using(var rows=search.Get())foreach(ManagementObject row in rows)using(row){var d=new Dictionary<string,object>();foreach(string p in props)d[p]=row[p];result.Add(d);}return result;
     }
@@ -55,6 +55,7 @@ public static class WindowsPlatform {
         foreach(var p in Query("SELECT ProcessId,ExecutablePath,CreationDate FROM Win32_Process WHERE Name='"+name+"'","ProcessId","ExecutablePath","CreationDate"))if(String.Equals(Convert.ToString(p["ExecutablePath"]),exe,StringComparison.OrdinalIgnoreCase))result.Add(p);return result;
     }
     public static Dictionary<string,object> Status(Dictionary<string,object>t) {
+        if(Json.Str(t,"id")=="system_cleanup")return new Dictionary<string,object>{{"target_id","system_cleanup"},{"kind","process"},{"is_running",null},{"health","unknown"},{"checked_at",Disk.Now()},{"maintenance_only",true},{"processes",new object[0]}};
         string kind=Json.Str(t,"kind");if(kind!="service"&&kind!="process")throw new InvalidDataException("Tipo inválido.");var svc=kind=="service"?Service(t):null;var processes=CatalogPolicy.IsMonitorObserver(t)?Query("SELECT ProcessId,ExecutablePath,CreationDate FROM Win32_Process WHERE Name='monitor.exe'","ProcessId","ExecutablePath","CreationDate"):Processes(t);bool running=svc!=null?Json.Str(svc,"State")=="Running":processes.Count>0;
         var details=new List<object>();foreach(var p in processes){DateTime start=ManagementDateTimeConverter.ToDateTime(Json.Str(p,"CreationDate"));details.Add(new {pid=Convert.ToInt32(p["ProcessId"]),executable=p["ExecutablePath"],started_at=start.ToUniversalTime().ToString("o"),uptime_seconds=(long)(DateTime.Now-start).TotalSeconds});}
         int port=Json.Int(t,"health_tcp_port",0);string health=!running?"down":port>0?(Tcp("127.0.0.1",port,1000)?"healthy":"unhealthy"):"unknown";

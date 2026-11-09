@@ -5,6 +5,7 @@ using System.Linq;
 using Uffa.InfraMonitor;
 // Test doubles only: Windows collectors and service manager are NOT validated by this suite.
 namespace Uffa.InfraMonitor {
+ public static class WindowsMaintenance {public static string Operate(object[] c,Dictionary<string,object>command,Func<bool> stop,Func<DateTime>now,Func<bool>reliable){throw new PlatformNotSupportedException();}}
  public static class WindowsServiceHost {public static int Run(string[] a){throw new PlatformNotSupportedException();}}
  public static class WindowsPlatform {
   public static object Metrics(){throw new PlatformNotSupportedException();}
@@ -47,6 +48,41 @@ public static class AgentTests {
   test("Monitor observer works without executable path",()=>Assert(CatalogPolicy.IsMonitorObserver(new Dictionary<string,object>{{"kind","process"},{"process_name","monitor.exe"}}),"Observer missing"));
   test("Name-based observer cannot become command target",()=>Throws(()=>CatalogPolicy.AssertControlAllowed(new Dictionary<string,object>{{"id","app"},{"process_name","other.exe"}}),"Name observer control accepted"));
   test("Unrelated explicit target not blocked by ERP guard",()=>CatalogPolicy.AssertControlAllowed(new Dictionary<string,object>{{"id","test-service"},{"executable",@"C:\Test\app.exe"}}));
+
+  Func<string,Dictionary<string,object>> target=id=>new Dictionary<string,object>{{"id",id},{"kind","process"},{"executable",id=="rustdesk"?MaintenancePolicy.RustDeskPath:@"C:\FrCaixaMonitor\monitor.exe"},{"remote_control_enabled",true},{"allowed_operations",new object[]{"start","stop","restart","kill"}},{"allow_force",true}};
+  test("Remote FrCaixa explicitly authorized by local opt-in",()=>{var c=Command(host);var t=target("frcaixa");Assert(MaintenancePolicy.Authorize(new object[]{t},c)==t,"Opt in");});
+  test("Legacy readonly FrCaixa remains protected",()=>{var c=Command(host);var t=target("frcaixa");t["remote_control_enabled"]=false;Throws(()=>MaintenancePolicy.Authorize(new object[]{t},c),"Readonly bypass");});
+  test("Remote arbitrary executable is ignored",()=>{var c=Command(host);c["executable"]=@"C:\evil\cmd.exe";var t=target("frcaixa");Assert(Json.Str(MaintenancePolicy.Authorize(new object[]{t},c),"executable")==@"C:\FrCaixaMonitor\monitor.exe","Network executable used");});
+  test("RustDesk fixed path enforced",()=>{var c=Command(host);c["target_id"]="rustdesk";var t=target("rustdesk");t["executable"]=@"C:\Other\rustdesk.exe";Throws(()=>MaintenancePolicy.Authorize(new object[]{t},c),"RustDesk path bypass");});
+  test("RustDesk restart authorized locally",()=>{var c=Command(host);c["target_id"]="rustdesk";Assert(MaintenancePolicy.Authorize(new object[]{target("rustdesk")},c)!=null,"Rust restart");});
+  test("Cleanup only start",()=>{var c=Command(host);c["target_id"]="system_cleanup";var t=target("system_cleanup");Throws(()=>MaintenancePolicy.Authorize(new object[]{t},c),"Cleanup restart");c["operation"]="start";Assert(MaintenancePolicy.Authorize(new object[]{t},c)!=null,"Cleanup start");});
+  test("Force kill needs local allow_force",()=>{var c=Command(host);c["operation"]="kill";var t=target("frcaixa");t["allow_force"]=false;Throws(()=>MaintenancePolicy.Authorize(new object[]{t},c),"Kill bypass");});
+  test("Unknown operation never authorized",()=>{var c=Command(host);c["operation"]="powershell";Throws(()=>MaintenancePolicy.Authorize(new object[]{target("frcaixa")},c),"Arbitrary operation");});
+  test("Residual Fr processes scoped to configured directory",()=>{Assert(MaintenancePolicy.RelatedFrProcess(@"C:\FrCaixaMonitor\monitor.exe",@"C:\FrCaixaMonitor\monitorthread.exe","monitorthread.exe"),"Residual missing");Assert(!MaintenancePolicy.RelatedFrProcess(@"C:\FrCaixaMonitor\monitor.exe",@"C:\Windows\monitor.exe","monitor.exe"),"Outside directory allowed");Assert(!MaintenancePolicy.RelatedFrProcess(@"C:\FrCaixaMonitor\monitor.exe",@"C:\FrCaixaMonitor-other\monitor.exe","monitor.exe"),"Sibling allowed");});
+  test("Local shell interpreter rejected",()=>Throws(()=>MaintenancePolicy.FullLocalExe(@"C:\Windows\System32\cmd.exe"),"Shell accepted"));
+  test("Remote paths and traversal rejected",()=>{Throws(()=>MaintenancePolicy.FullLocalExe(@"\\server\app.exe"),"UNC");Throws(()=>MaintenancePolicy.FullLocalExe(@"C:\Apps\..\other.exe"),"Traversal");});
+  test("24h cutoff keeps newly copied or recently written files",()=>{var now=DateTime.UtcNow;Assert(MaintenancePolicy.ExpiredTemp(now.AddDays(-2),now.AddDays(-2),now),"Old not eligible");Assert(!MaintenancePolicy.ExpiredTemp(now.AddHours(-1),now.AddDays(-2),now),"New copy eligible");Assert(!MaintenancePolicy.ExpiredTemp(now.AddDays(-2),now.AddHours(-1),now),"Recent write eligible");});
+  test("Final file path cannot escape authorized temp root",()=>{Assert(MaintenancePolicy.BelowRoot(@"C:\Windows\Temp",@"\\?\C:\Windows\Temp\a.tmp"),"Normalized missing");Assert(!MaintenancePolicy.BelowRoot(@"C:\Windows\Temp",@"C:\Windows\Temp-other\file"),"Prefix escape");Assert(!MaintenancePolicy.BelowRoot(@"C:\Windows\Temp",@"C:\Windows\System32\config"),"Outside delete");});
+  test("Interactive console session preferred over other active sessions",()=>Assert(MaintenancePolicy.ChooseSession(1,new List<int>{1,2})==1,"Console ignored"));
+  test("No or ambiguous interactive session fails closed",()=>{Throws(()=>MaintenancePolicy.ChooseSession(-1,new List<int>()),"No session accepted");Throws(()=>MaintenancePolicy.ChooseSession(-1,new List<int>{2,3}),"Ambiguous accepted");Assert(MaintenancePolicy.ChooseSession(-1,new List<int>{2})==2,"Single RDP rejected");});
+  test("Example command envelope binds to authenticated pull host",()=>{var c=Command(host);c.Remove("host_id");c.Remove("expires_at");var b=MaintenancePolicy.BindCommand(c,host);Assert(Json.Str(b,"host_id")==host&&Json.Str(b,"expires_at")!="","Binding missing");Assert(!c.ContainsKey("host_id"),"Original mutated");});
+  test("Explicit cross-host command rejected before queue",()=>Throws(()=>MaintenancePolicy.BindCommand(Command(Guid.NewGuid().ToString()),host),"Host mismatch accepted"));
+  test("Server time evaluates command expiry independently of bad local clock",()=>{var server=DateTime.UtcNow.AddHours(-3);var j=new CommandJournal(Path.Combine(dir,"serverclock"),host,()=>server);var c=Command(host);c["expires_at"]=server.AddMinutes(1).ToString("o");int n=0;Assert(Json.Str(j.Execute(c,x=>{n++;return "ok";}),"result")=="ok"&&n==1,"Used wrong clock");});
+  test("Missing command expiry uses supplied trusted receive time",()=>{var c=Command(host);c.Remove("expires_at");DateTime now=DateTime.UtcNow.AddHours(-3);var bound=MaintenancePolicy.BindCommand(c,host,now);Assert(DateTime.Parse(Json.Str(bound,"expires_at")).ToUniversalTime()==now.AddMinutes(5),"Receive TTL clock");});
+  test("Untrusted or shifted HTTPS clock blocks destructive cleanup policy",()=>{var a=new Api("https://example.com",new Dictionary<string,object>());Assert(!a.LocalClockReliable,"No reference accepted");a.ObserveServerClock(DateTime.UtcNow.ToString("r"));Assert(a.LocalClockReliable,"Current clock rejected");a.ObserveServerClock(DateTime.UtcNow.AddHours(-3).ToString("r"));Assert(!a.LocalClockReliable,"Bad clock accepted");});
+  test("Operation errors limited to 500 characters",()=>{var j=new CommandJournal(Path.Combine(dir,"longresult"),host);var r=j.Execute(Command(host),x=>{throw new MaintenanceFailure(new string('x',800));});Assert(Json.Str(r,"result")=="error"&&Json.Str(r,"message").Length==500,"Message limit");});
+  test("Worker does not block polling and deduplicates active command",()=>{
+    var j=new CommandJournal(Path.Combine(dir,"worker"),host);var entered=new System.Threading.ManualResetEvent(false);var release=new System.Threading.ManualResetEvent(false);var sent=new System.Threading.ManualResetEvent(false);int calls=0;
+    using(var w=new RemoteCommandWorker(j,host,c=>{System.Threading.Interlocked.Increment(ref calls);entered.Set();release.WaitOne(5000);return "done";},r=>{j.Ack(r);sent.Set();},code=>{})){
+      try{var c=Command(host);Assert(w.Enqueue(c),"Not queued");Assert(entered.WaitOne(2000),"Not running");Assert(!w.Enqueue(c),"Duplicate active queued");Assert(!j.Pending().Any(),"Running action treated as crashed");Assert(calls==1,"Duplicate effect");release.Set();Assert(sent.WaitOne(2000),"No immediate completion");Assert(!j.Pending().Any(),"Ack missing");}finally{release.Set();}
+    }entered.Dispose();release.Dispose();sent.Dispose();
+  });
+  test("Failed result delivery retries only confirmation",()=>{
+    var j=new CommandJournal(Path.Combine(dir,"worker-retry"),host);var finished=new System.Threading.ManualResetEvent(false);int effects=0;
+    using(var w=new RemoteCommandWorker(j,host,c=>{effects++;return "ok";},r=>{finished.Set();throw new IOException();},code=>{})){Assert(w.Enqueue(Command(host)),"Missing queue");Assert(finished.WaitOne(2000),"No attempt");}
+    var pending=j.Pending().ToList();Assert(effects==1&&pending.Count==1,"Lost result or repeated effect");j.Ack(pending[0]);Assert(!j.Pending().Any(),"Retry ack");finished.Dispose();
+  });
+
   return passed.ToArray();
  }
 }

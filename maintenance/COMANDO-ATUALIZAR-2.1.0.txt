@@ -1,0 +1,13 @@
+# PowerShell como administrador. Atualiza e habilita o catalogo remoto, sem recadastro.
+& {
+    $ErrorActionPreference = 'Stop'
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $arquivo = Join-Path $env:TEMP ("atualizar-infra-" + [guid]::NewGuid() + ".ps1")
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/fromNexz/UFFA/v2.1.0/maintenance/Atualizar-InfraMonitor-Web.ps1' -OutFile $arquivo
+        if ((Get-FileHash $arquivo -Algorithm SHA256).Hash -ne '0179ff5b5203992ee30e7cd936854f3b0f546f2f2492fc9517e880df58015483') { throw 'Integridade invalida. Atualizacao cancelada.' }
+        Unblock-File $arquivo
+        powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $arquivo
+        if ($LASTEXITCODE -ne 0) { throw 'Atualizacao interrompida; confira a mensagem acima.' }
+    } finally { Remove-Item $arquivo -Force -ErrorAction SilentlyContinue }
+}

@@ -41,3 +41,11 @@ Aplicar a integração de `docs/LOVABLE.md` em homologação e executar toda a m
 ## Atualização 2.0.1 (30/10/2026)
 
 27 testes do núcleo e 6 verificações dos scripts passaram. O código de produção foi compilado contra .NET Framework 4.7.2/C# 5/x86. Novidade: observador por nome de monitor.exe, catálogo sem controle remoto e guarda ERP/PDV no runtime. Logs de API incluem status numérico. A homologação Windows e RAM continuam pendentes. Ver INSTALACAO-WEB.md.
+
+## Atualização 2.1.0 — 09/11/2026
+
+Nova autorização explícita de controle remoto substitui a política anterior de somente monitoramento para os agentes atualizados com o catálogo habilitado. Três targets: FrCaixa, RustDesk e system_cleanup. Operações não são disparadas ao atualizar.
+
+Verificações locais: 50 testes C# do núcleo/fila/políticas; 31 testes TypeScript/contratos/PostgreSQL isolado; 6 verificações dos scripts comuns; 12 decisões do instalador web; 11 verificações do catálogo remoto; 7 decisões do atualizador web; 44 regras da limpeza antiga (compatibilidade). Os testes usam doubles para APIs Windows e não comprovam WTS, SCM, Shell, NTFS ou TRIM reais. Compilação C# 5/.NET Framework 4.7.2/x86 aprovada. Typecheck aprovado. Não houve migração de banco nem operação remota em loja real.
+
+Pendente: homologação Windows com app descartável autorizado, sessão ativa, reinício RustDesk, lixeira/temporários/TRIM, perda de rede, reboot/rollback e medição de RAM durante manutenção. Guia completo em ATUALIZACAO-2.1.0.md. Publicação de código/pacote não equivale a homologação nas lojas.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -77,6 +78,10 @@ public sealed class ApiError:Exception { public readonly int Status; public ApiE
 }
 public sealed class Api {
     readonly string baseUrl,id,token;readonly int timeout;public Func<bool> Cancelled;
+    readonly object clockGate=new object();DateTime serverUtc;long serverStamp;bool hasClock;
+    public void ObserveServerClock(string date){DateTimeOffset parsed;if(DateTimeOffset.TryParse(date,CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal,out parsed))lock(clockGate){serverUtc=parsed.UtcDateTime;serverStamp=Stopwatch.GetTimestamp();hasClock=true;}}
+    public DateTime ClockUtc {get{lock(clockGate){if(hasClock){double seconds=(Stopwatch.GetTimestamp()-serverStamp)/(double)Stopwatch.Frequency;if(seconds<=600)return serverUtc.AddSeconds(seconds);}return DateTime.UtcNow;}}}
+    public bool LocalClockReliable {get{lock(clockGate){return hasClock&&(Stopwatch.GetTimestamp()-serverStamp)/(double)Stopwatch.Frequency<=600&&Math.Abs((ClockUtc-DateTime.UtcNow).TotalSeconds)<=300;}}}
     public Api(string url,Dictionary<string,object>identity,int timeoutSeconds=15) {
         Uri u;if(!Uri.TryCreate(url,UriKind.Absolute,out u)||u.Scheme!="https"||u.UserInfo!=""||u.Query!=""||u.Fragment!="")throw new InvalidDataException("URL HTTPS obrigatória.");
         baseUrl=url.TrimEnd('/');id=Json.Str(identity,"host_id");token=Json.Str(identity,"token");timeout=Math.Max(5,Math.Min(timeoutSeconds,30));
@@ -91,6 +96,7 @@ public sealed class Api {
                 if(id!=""){r.Headers["X-Host-Id"]=id;r.Headers["X-Host-Token"]=token;}
                 if(body!=null){byte[] bytes=Encoding.UTF8.GetBytes(Json.Stringify(body));r.ContentType="application/json";r.ContentLength=bytes.Length;using(var s=r.GetRequestStream())s.Write(bytes,0,bytes.Length);}
                 using(var res=(HttpWebResponse)r.GetResponse())using(var stream=res.GetResponseStream())using(var reader=new StreamReader(stream)) {
+                    ObserveServerClock(res.Headers[HttpResponseHeader.Date]);
                     status=(int)res.StatusCode;if(status<200||status>=300)throw new ApiError(status);
                     var b=new char[4096];var content=new StringBuilder();int n;while((n=reader.Read(b,0,b.Length))>0){if(content.Length+n>1048576)throw new InvalidDataException("Resposta excede limite.");content.Append(b,0,n);}
                     return Json.Obj(Json.Parse(content.ToString()));
@@ -112,25 +118,27 @@ public sealed class Intervals {
     }
 }
 public sealed class CommandJournal {
-    readonly string dir,host;readonly HashSet<string> pending=new HashSet<string>();
-    public CommandJournal(string root,string hostId) {dir=Path.Combine(root,"state","commands");Directory.CreateDirectory(dir);host=hostId;foreach(string path in Directory.EnumerateFiles(dir,"*.json")){var r=Recover(path);if(!Json.Bool(r,"acknowledged"))pending.Add(Json.Str(r,"command_id"));}}
+    readonly Func<DateTime> utcNow;readonly string dir,host;readonly HashSet<string> pending=new HashSet<string>();readonly object pendingGate=new object();
+    public CommandJournal(string root,string hostId,Func<DateTime> clock=null) {utcNow=clock??(()=>DateTime.UtcNow);dir=Path.Combine(root,"state","commands");Directory.CreateDirectory(dir);host=hostId;foreach(string path in Directory.EnumerateFiles(dir,"*.json")){var r=Recover(path);if(!Json.Bool(r,"acknowledged"))lock(pendingGate)pending.Add(Json.Str(r,"command_id"));}}
     public Dictionary<string,object> Execute(Dictionary<string,object>cmd,Func<Dictionary<string,object>,string>action) {
         Guid g;if(!Guid.TryParse(Json.Str(cmd,"id"),out g))throw new InvalidDataException("ID inválido.");
         if(Json.Str(cmd,"host_id")!=host)throw new InvalidDataException("Comando de outro host.");
         string id=g.ToString(),path=Path.Combine(dir,id+".json");
-        if(File.Exists(path)){var existing=Recover(path);if(!Json.Bool(existing,"acknowledged"))pending.Add(id);return existing;}
+        if(File.Exists(path)){var existing=Recover(path);if(!Json.Bool(existing,"acknowledged"))lock(pendingGate)pending.Add(id);return existing;}
         var record=new Dictionary<string,object>{{"command_id",id},{"state","started"},{"result","error"},{"message",""},{"acknowledged",false},{"created_at",Disk.Now()}};
         Disk.Write(path,record);
         try {
-            DateTime expiry;if(!DateTime.TryParse(Json.Str(cmd,"expires_at"),CultureInfo.InvariantCulture,DateTimeStyles.AdjustToUniversal|DateTimeStyles.AssumeUniversal,out expiry)||expiry<=DateTime.UtcNow)throw new InvalidDataException();
+            DateTime expiry;if(!DateTime.TryParse(Json.Str(cmd,"expires_at"),CultureInfo.InvariantCulture,DateTimeStyles.AdjustToUniversal|DateTimeStyles.AssumeUniversal,out expiry)||expiry<=utcNow())throw new MaintenanceFailure("Comando expirado ou prazo invalido; nenhuma acao executada.");
             record["message"]=action(cmd);record["result"]="ok";
-        } catch {record["message"]="Operação recusada ou estado final não confirmado. Verifique catálogo e estado local.";record["result"]="error";}
-        record["state"]="completed";record["completed_at"]=Disk.Now();Disk.Write(path,record);pending.Add(id);return record;
+        } catch(MaintenanceFailure e){record["message"]=e.Message;record["result"]="error";} catch(Exception e) {record["message"]="Operacao falhou ("+e.GetType().Name+"). Verifique catalogo, sessao e acesso local.";record["result"]="error";}
+        if(Convert.ToString(record["message"]).Length>500)record["message"]=Convert.ToString(record["message"]).Substring(0,500);
+        record["state"]="completed";record["completed_at"]=Disk.Now();Disk.Write(path,record);lock(pendingGate)pending.Add(id);return record;
     }
     Dictionary<string,object> Recover(string path) {
         var r=Disk.Read(path);if(Json.Str(r,"state")=="started") {r["state"]="completed";r["result"]="error";r["message"]="Resultado incerto após interrupção; comando não repetido.";Disk.Write(path,r);}return r;
     }
-    public IEnumerable<Dictionary<string,object>> Pending() {foreach(string id in new List<string>(pending)){var r=Recover(Path.Combine(dir,id+".json"));if(!Json.Bool(r,"acknowledged"))yield return r;}}
-    public void Ack(Dictionary<string,object>r){r["acknowledged"]=true;Disk.Write(Path.Combine(dir,Json.Str(r,"command_id")+".json"),r);pending.Remove(Json.Str(r,"command_id"));}
+    List<string> PendingIds(){lock(pendingGate)return new List<string>(pending);}
+    public IEnumerable<Dictionary<string,object>> Pending() {foreach(string id in PendingIds()){var r=Recover(Path.Combine(dir,id+".json"));if(!Json.Bool(r,"acknowledged"))yield return r;}}
+    public void Ack(Dictionary<string,object>r){r["acknowledged"]=true;Disk.Write(Path.Combine(dir,Json.Str(r,"command_id")+".json"),r);lock(pendingGate)pending.Remove(Json.Str(r,"command_id"));}
 }
 }

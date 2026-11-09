@@ -15,7 +15,38 @@
       "id": "frcaixa",
       "kind": "process",
       "process_name": "monitor.exe",
-      "allowed_operations": [],
+      "executable": "C:\\FrCaixaMonitor\\monitor.exe",
+      "remote_control_enabled": true,
+      "allowed_operations": [
+        "start",
+        "stop",
+        "restart",
+        "kill"
+      ],
+      "allow_force": true,
+      "health_tcp_port": null
+    },
+    {
+      "id": "rustdesk",
+      "kind": "process",
+      "executable": "C:\\Program Files\\RustDesk\\RustDesk.exe",
+      "remote_control_enabled": true,
+      "allowed_operations": [
+        "start",
+        "stop",
+        "restart",
+        "kill"
+      ],
+      "allow_force": true,
+      "health_tcp_port": null
+    },
+    {
+      "id": "system_cleanup",
+      "kind": "process",
+      "remote_control_enabled": true,
+      "allowed_operations": [
+        "start"
+      ],
       "allow_force": false,
       "health_tcp_port": null
     }

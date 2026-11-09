@@ -91,21 +91,21 @@ $stageRoot=Join-Path $env:ProgramData ('InfraMonitor-Web-'+[Guid]::NewGuid().ToS
 try {
     & icacls.exe $stageRoot /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel proteger o staging; instalacao cancelada.' }
-    Write-Host 'Baixando e verificando o pacote 2.0.1...'
+    Write-Host 'Baixando e verificando o pacote 2.1.0...'
     $zip=Join-Path $stageRoot 'package.zip'
-    Get-VerifiedArtifact 'https://raw.githubusercontent.com/fromNexz/UFFA/099644507abf320fb94169d5d717f878dd18e670/dist/InfraMonitor-2.0.1.zip' '38f80944615cd0ac64fe617480b72d3b6cd816f08716c8378e40a4961fb81133' $zip
+    Get-VerifiedArtifact 'https://raw.githubusercontent.com/fromNexz/UFFA/v2.1.0/dist/InfraMonitor-2.1.0.zip' '4f511a13ba7ea75f9e0390f4405986ab81b47f24f0003b03ccd33afa830af087' $zip
     $package=Join-Path $stageRoot 'package'
     Expand-SafePackage $zip $package
     . (Join-Path $package 'scripts/Common.ps1')
     Assert-Admin
     $manifest=Assert-Package $package
-    if ($manifest.version -ne '2.0.1') { throw 'Versao do pacote inesperada.' }
+    if ($manifest.version -ne '2.1.0') { throw 'Versao do pacote inesperada.' }
     . (Join-Path $package 'maintenance/legacy-cleanup/Remover-InfraMonitor-Antigo.ps1')
     $oldServices=@(Get-ServicosAntigos);$oldTasks=@(Get-TarefasAntigas);$oldProcesses=@(Get-ProcessosAntigos)
     if ($oldServices.Count+$oldTasks.Count+$oldProcesses.Count -gt 0) { throw 'Agente antigo ainda possui inicializacoes/processos. Execute a limpeza antiga primeiro. Nenhum arquivo da loja foi modificado.' }
-    Write-Host ('Plano: '+$plan+'. FrCaixaMonitor sera apenas observado, nunca controlado.')
+    Write-Host ('Plano: '+$plan+'. Catalogo habilitado para acoes administrativas FrCaixa, RustDesk e limpeza; nada e executado automaticamente.')
     if ($plan -eq 'Resume') { Write-Host 'Retomando a identidade/cadastro pendente existente. Nao e necessario outro codigo.' }
-    & (Join-Path $package 'scripts/Install.ps1') -ApiBaseUrl $ApiBaseUrl -Root $Root -Mode New -Resume:($plan -eq 'Resume') -MonitoringOnly
+    & (Join-Path $package 'scripts/Install.ps1') -ApiBaseUrl $ApiBaseUrl -Root $Root -Mode New -Resume:($plan -eq 'Resume')
     Write-Host 'Instalacao concluida. Confira a loja e as coletas no painel antes de repetir nas demais.'
 } finally {
     if (Test-Path -LiteralPath $stageRoot) { Remove-Item -LiteralPath $stageRoot -Recurse -Force }

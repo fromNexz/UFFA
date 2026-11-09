@@ -39,6 +39,10 @@ try {
         if (Test-Path $configPath) { Copy-Item -LiteralPath $configPath -Destination (Join-Path $Root ('backups/config-before-monitoring-'+[Guid]::NewGuid().ToString('N')+'.json')) }
         $cfg.catalog=ConvertTo-MonitoringOnlyCatalog $cfg.catalog
     }
+    if (!$MonitoringOnly) {
+        . (Join-Path $PSScriptRoot 'RemoteMaintenanceConfig.ps1')
+        $cfg.catalog=ConvertTo-RemoteMaintenanceCatalog $cfg.catalog (Get-FrCaixaExecutable $cfg.catalog)
+    }
     Write-Json (Join-Path $Root 'config/agent.json') $cfg
     if ($Mode -eq 'Migrate') {
         if (!$LegacyRoot -or !$LegacyServiceName) { throw 'Migração exige LegacyRoot e LegacyServiceName explícitos.' }
@@ -106,7 +110,7 @@ try {
     Wait-AgentHealthy $Root $manifest.version
     if ($Mode -eq 'Migrate' -and !$reuse) { Set-Service -Name $LegacyServiceName -StartupType Disabled }
     Copy-Item (Join-Path $package 'manifest.json') (Join-Path $Root 'manifest.json')
-    Write-Host "InfraMonitorAgent $($manifest.version) instalado; heartbeat confirmado. FrCaixaMonitor protegido: somente monitoramento."
+    Write-Host "InfraMonitorAgent $($manifest.version) instalado; heartbeat confirmado. Catalogo local carregado; comandos somente por solicitacao administrativa."
 } catch {
     if ($created) { Stop-Service InfraMonitorAgent -ErrorAction SilentlyContinue; & sc.exe delete InfraMonitorAgent | Out-Null }
     if ($reconfigured) { Stop-Service InfraMonitorAgent -ErrorAction SilentlyContinue;Invoke-Sc -Arguments @('config','InfraMonitorAgent','binPath=',$existing.PathName,'start=',$oldStart) }

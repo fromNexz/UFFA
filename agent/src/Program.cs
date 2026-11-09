@@ -6,8 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 namespace Uffa.InfraMonitor {
 public static class Program {
-    public const string Version="2.0.1";
-    static bool stop;
+    public const string Version="2.1.0";
+    static volatile bool stop;
     public static int Main(string[] args) {
         if(Array.IndexOf(args,"--service")>=0)return WindowsServiceHost.Run(args);
         return ConsoleMain(args);
@@ -29,7 +29,7 @@ public static class Program {
         var log=new AgentLog(root);var api=new Api(Json.Str(cfg,"api_base_url"),identity,Json.Int(cfg,"http_timeout_seconds",15));
         api.Cancelled=()=>stop;
         var intervals=new Intervals();intervals.Apply(Json.Obj(cfg["intervals"]));
-        var journal=new CommandJournal(root,host.ToString());object[] catalog=Json.Array(cfg,"catalog"),ips=new object[0];
+        var journal=new CommandJournal(root,host.ToString(),()=>api.ClockUtc);object[] catalog=Json.Array(cfg,"catalog"),ips=new object[0];
         var clock=Stopwatch.StartNew();var next=new Dictionary<string,double>{{"poll",0},{"heartbeat",0},{"metrics",0},{"processes",0},{"ips",0},{"flush",0},{"memory",10}};
         Task worker=null;bool configured=false;int failures=0;
         var ipReadings=new Dictionary<string,object>();
@@ -38,14 +38,16 @@ public static class Program {
         string cache=Path.Combine(root,"state","config-cache.json");string configFingerprint="";
         if(File.Exists(cache))try{var saved=Disk.Read(cache);intervals.Apply(Json.Obj(saved["intervals"]));ips=Json.Array(saved,"ips");if(ips.Length<=128){configured=true;configFingerprint=Json.Stringify(new {intervals=saved["intervals"],ips=ips});}}catch{log.Event("config_cache_invalid");}
         log.Event("started_v"+Version);
+        using(var commands=new RemoteCommandWorker(journal,host.ToString(),c=>WindowsMaintenance.Operate(catalog,c,()=>stop,()=>api.ClockUtc,()=>api.LocalClockReliable),record=>{api.Call("agent-action-result","POST",new {command_id=record["command_id"],result=record["result"],message=record["message"]});journal.Ack(record);},code=>log.Event(code),()=>api.ClockUtc)) {
         while(!stop) {
             double now=clock.Elapsed.TotalSeconds;
+            if(commands.TakeCompleted())next["processes"]=0;
             if(now>=next["memory"]) {
                 next["memory"]=now+10;using(var p=Process.GetCurrentProcess()) {
                     // Soft restart threshold, not an OS-enforced memory cap. Keep durable state before exit.
                     if(p.PrivateMemorySize64>80L*1024*1024||p.WorkingSet64>90L*1024*1024) {
                         GC.Collect();GC.WaitForPendingFinalizers();p.Refresh();
-                        if(p.PrivateMemorySize64>80L*1024*1024||p.WorkingSet64>90L*1024*1024){log.Event("memory_soft_limit_restart");return 75;}
+                        if(p.PrivateMemorySize64>80L*1024*1024||p.WorkingSet64>90L*1024*1024){log.Event("memory_soft_limit_restart");stop=true;return 75;}
                     }
                 }
             }
@@ -54,9 +56,9 @@ public static class Program {
                 try {
                     var remote=api.Call("agent-pull-config","GET");
                     if(Json.Int(remote,"schema_version",0)!=2)throw new InvalidDataException("Backend v2 obrigatório.");
-                    intervals.Apply(Json.Obj(remote["intervals"]));ips=Json.Array(remote,"ips");if(ips.Length>128)throw new InvalidDataException();
-                    string fingerprint=Json.Stringify(new {intervals=remote["intervals"],ips=ips});if(configFingerprint!=fingerprint){next["ips"]=now;configFingerprint=fingerprint;Disk.Write(cache,new {intervals=remote["intervals"],ips=ips});}configured=true;failures=0;
-                    foreach(object command in Json.Array(remote,"pending_commands")){if(stop)break;var result=journal.Execute(Json.Obj(command),c=>WindowsPlatform.Operate(catalog,c));next["processes"]=0;try{api.Call("agent-action-result","POST",new {command_id=result["command_id"],result=result["result"],message=result["message"]});journal.Ack(result);}catch(ApiError e){log.Event("result_"+"http_"+e.Status+"_"+ApiError.Kind(e.Status));}}
+                    if(remote.ContainsKey("intervals"))intervals.Apply(Json.Obj(remote["intervals"]));if(remote.ContainsKey("ips"))ips=Json.Array(remote,"ips");if(ips.Length>128)throw new InvalidDataException();
+                    string fingerprint=Json.Stringify(new {intervals=intervals.Values,ips=ips});if(configFingerprint!=fingerprint){next["ips"]=now;configFingerprint=fingerprint;Disk.Write(cache,new {intervals=intervals.Values,ips=ips});}configured=true;failures=0;
+                    foreach(object command in Json.Array(remote,"pending_commands")){if(stop)break;try{commands.Enqueue(Json.Obj(command));}catch{log.Event("command_envelope_rejected");}}
                 } catch(ApiError e){log.Event("poll_"+"http_"+e.Status+"_"+ApiError.Kind(e.Status));failures++;} catch {log.Event("poll_contract_or_command_error");failures++;}
                 if(failures>0)next["poll"]=now+Math.Min(900,intervals.Values["poll"]*Math.Pow(2,Math.Min(4,failures-1)));
             }
@@ -112,6 +114,7 @@ public static class Program {
             Thread.Sleep(250);
         }
         return 0;
+        }
     }
     static object CatalogSummary(object[] catalog) {
         var summary=new List<object>();foreach(object o in catalog){var t=Json.Obj(o);summary.Add(new {id=Json.Str(t,"id"),kind=Json.Str(t,"kind"),allowed_operations=Json.Array(t,"allowed_operations"),allow_force=Json.Bool(t,"allow_force")});}return summary;
