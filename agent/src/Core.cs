@@ -52,6 +52,24 @@ public static class CatalogPolicy {
         if(Json.Str(t,"process_name")!="")throw new InvalidOperationException("Observador por nome nao permite controle.");
     }
 }
+// Shared, portable collection rules. No wall clock is used for in-process probe cadence.
+public static class CollectionPolicy {
+    public static string ProbeKey(Dictionary<string,object> target) {
+        IPAddress address;if(!IPAddress.TryParse(Json.Str(target,"ip"),out address))throw new InvalidDataException("IP invalido.");
+        var ports=new SortedSet<int>();foreach(object raw in Json.Array(target,"tcp_ports")){int port=Convert.ToInt32(raw);if(port<1||port>65535)throw new InvalidDataException("Porta invalida.");ports.Add(port);}
+        if(Json.Array(target,"tcp_ports").Length>32)throw new InvalidDataException("Portas em excesso.");
+        var key=new StringBuilder(address.ToString()).Append('|');foreach(int port in ports)key.Append(":").Append(port);return key.ToString();
+    }
+    public static bool ServicePathMatches(string command,string expected,bool observationOnly=false) {
+        command=Environment.ExpandEnvironmentVariables(command.Trim());
+        if(command.StartsWith("\"")){int end=command.IndexOf('"',1);return end>0&&String.Equals(command.Substring(1,end-1),expected,StringComparison.OrdinalIgnoreCase);}
+        if(!observationOnly&&expected.IndexOf(' ')>=0)return false;
+        return command.StartsWith(expected,StringComparison.OrdinalIgnoreCase)&&(command.Length==expected.Length||Char.IsWhiteSpace(command[expected.Length]));
+    }
+    public static bool Due(double now,double last,int seconds) {return now<last||now-last>=seconds;}
+    public static bool ConfirmReachability(Func<bool> attempt) {return attempt()||attempt();}
+    public static long? Uptime(DateTime? start,DateTime now) {return start.HasValue&&start.Value<=now?(long?)(long)(now-start.Value).TotalSeconds:null;}
+}
 public static class Disk {
     public static Dictionary<string,object> Read(string path) { return Json.Obj(Json.Parse(File.ReadAllText(path))); }
     public static void Write(string path,object value) {

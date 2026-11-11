@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.ServiceProcess;
+using System.Runtime.InteropServices;
 namespace Uffa.InfraMonitor {
 public sealed class WindowsServiceHost:ServiceBase {
     readonly string[] args;System.Threading.Thread thread;
@@ -16,48 +17,48 @@ public sealed class WindowsServiceHost:ServiceBase {
     protected override void OnStop(){RequestAdditionalTime(60000);Program.RequestStop();if(thread!=null&&!thread.Join(55000))Environment.Exit(75);}
 }
 public static class WindowsPlatform {
+    [DllImport("kernel32.dll")] static extern ulong GetTickCount64();
     internal static List<Dictionary<string,object>> Query(string query,params string[] props) {
         var result=new List<Dictionary<string,object>>();
-        using(var search=new ManagementObjectSearcher(query))using(var rows=search.Get())foreach(ManagementObject row in rows)using(row){var d=new Dictionary<string,object>();foreach(string p in props)d[p]=row[p];result.Add(d);}return result;
+        using(var search=new ManagementObjectSearcher(query)) {search.Options.Timeout=TimeSpan.FromSeconds(10);using(var rows=search.Get())foreach(ManagementObject row in rows)using(row){var d=new Dictionary<string,object>();foreach(string p in props)d[p]=row[p];result.Add(d);}}return result;
     }
     public static object Metrics() {
-        var os=Query("SELECT TotalVisibleMemorySize,FreePhysicalMemory,LastBootUpTime FROM Win32_OperatingSystem","TotalVisibleMemorySize","FreePhysicalMemory","LastBootUpTime")[0];
+        var os=Query("SELECT TotalVisibleMemorySize,FreePhysicalMemory FROM Win32_OperatingSystem","TotalVisibleMemorySize","FreePhysicalMemory")[0];
         double total=Convert.ToDouble(os["TotalVisibleMemorySize"])*1024,free=Convert.ToDouble(os["FreePhysicalMemory"])*1024,cpu=0;int count=0;
         foreach(var c in Query("SELECT LoadPercentage FROM Win32_Processor","LoadPercentage")){cpu+=Convert.ToDouble(c["LoadPercentage"]);count++;}
         var disks=new List<object>();foreach(var d in Query("SELECT DeviceID,Size,FreeSpace FROM Win32_LogicalDisk WHERE DriveType=3","DeviceID","Size","FreeSpace"))disks.Add(new {name=d["DeviceID"],total_bytes=Convert.ToInt64(d["Size"]),free_bytes=Convert.ToInt64(d["FreeSpace"])});
-        var ips=new List<string>();foreach(var nic in NetworkInterface.GetAllNetworkInterfaces())if(nic.OperationalStatus==OperationalStatus.Up&&nic.NetworkInterfaceType!=NetworkInterfaceType.Loopback)foreach(var ip in nic.GetIPProperties().UnicastAddresses)ips.Add(ip.Address.ToString());
-        return new {collected_at=Disk.Now(),hostname=Environment.MachineName,agent_version=Program.Version,cpu_percent=count>0?cpu/count:0,memory=new {total_bytes=total,available_bytes=free,used_percent=Math.Round(100*(total-free)/total,2)},uptime_seconds=(long)(DateTime.Now-ManagementDateTimeConverter.ToDateTime(Convert.ToString(os["LastBootUpTime"]))).TotalSeconds,disks=disks,local_ips=ips,public_ip=(string)null};
+        var ips=new SortedSet<string>(StringComparer.Ordinal);foreach(var nic in NetworkInterface.GetAllNetworkInterfaces())if(nic.OperationalStatus==OperationalStatus.Up&&nic.NetworkInterfaceType!=NetworkInterfaceType.Loopback)foreach(var ip in nic.GetIPProperties().UnicastAddresses)if(!IPAddress.IsLoopback(ip.Address)&&!ip.Address.Equals(IPAddress.Any)&&!ip.Address.Equals(IPAddress.IPv6Any)&&!ip.Address.IsIPv6LinkLocal&&!ip.Address.IsIPv6Multicast)ips.Add(ip.Address.ToString());
+        return new {collected_at=Disk.Now(),hostname=Environment.MachineName,agent_version=Program.Version,cpu_percent=count>0?cpu/count:0,memory=new {total_bytes=total,available_bytes=free,used_percent=total>0?Math.Round(Math.Max(0,Math.Min(100,100*(total-free)/total)),2):0},uptime_seconds=(long)(GetTickCount64()/1000),disks=disks,local_ips=ips,public_ip=(string)null};
     }
     public static bool Tcp(string ip,int port,int timeout) {
-        using(var client=new TcpClient()) {IAsyncResult pending=null;try {pending=client.BeginConnect(IPAddress.Parse(ip),port,null,null);using(var handle=pending.AsyncWaitHandle){if(!handle.WaitOne(timeout))return false;client.EndConnect(pending);return true;}}catch{return false;}}
+        using(var client=new TcpClient(IPAddress.Parse(ip).AddressFamily)) {IAsyncResult pending=null;try {pending=client.BeginConnect(IPAddress.Parse(ip),port,null,null);using(var handle=pending.AsyncWaitHandle){if(!handle.WaitOne(timeout))return false;client.EndConnect(pending);return true;}}catch{return false;}}
     }
     public static object Probe(Dictionary<string,object>target,int timeout) {
         IPAddress ip;if(!IPAddress.TryParse(Json.Str(target,"ip"),out ip))throw new InvalidDataException("IP inválido.");
         object[] ports=Json.Array(target,"tcp_ports");if(ports.Length>32)throw new InvalidDataException();bool up=true;
-        if(ports.Length==0){using(var ping=new Ping())try{up=ping.Send(ip,timeout).Status==IPStatus.Success;}catch{up=false;}}
-        else foreach(object p in ports){int port=Convert.ToInt32(p);if(port<1||port>65535)throw new InvalidDataException();if(!Tcp(ip.ToString(),port,timeout)){up=false;break;}}
+        CollectionPolicy.ProbeKey(target); // Validate every port before any network operation.
+        if(ports.Length==0){using(var ping=new Ping())up=CollectionPolicy.ConfirmReachability(()=>{try{return ping.Send(ip,timeout).Status==IPStatus.Success;}catch{return false;}});}
+        else {var seen=new HashSet<int>();foreach(object p in ports){int port=Convert.ToInt32(p);if(!seen.Add(port))continue;if(!CollectionPolicy.ConfirmReachability(()=>Tcp(ip.ToString(),port,timeout))){up=false;break;}}}
         return new {ip=ip.ToString(),is_up=up,checked_at=Disk.Now(),protocol=ports.Length==0?"icmp":"tcp"};
     }
     static string Executable(Dictionary<string,object>t) {
         string path=Json.Str(t,"executable");if(path.Length<4||path[1]!=':'||path[2]!='\\'||path.Contains("\"")||path.Contains("\r")||path.Contains("\n"))throw new InvalidDataException("Caminho local absoluto obrigatório.");return Path.GetFullPath(path);
     }
-    static Dictionary<string,object> Service(Dictionary<string,object>t) {
+    static Dictionary<string,object> Service(Dictionary<string,object>t,bool observationOnly=false) {
         string name=Json.Str(t,"service_name");if(!System.Text.RegularExpressions.Regex.IsMatch(name,"^[A-Za-z0-9_.-]{1,100}$"))throw new InvalidDataException("Nome de serviço inválido.");
         var rows=Query("SELECT Name,PathName,State,ProcessId FROM Win32_Service WHERE Name='"+name+"'","Name","PathName","State","ProcessId");
         if(rows.Count==0){string pattern=Json.Str(t,"display_name_pattern");if(pattern!=""){var matches=new List<ServiceController>();foreach(var s in ServiceController.GetServices())using(s){if(s.DisplayName.IndexOf(pattern,StringComparison.OrdinalIgnoreCase)>=0)matches.Add(new ServiceController(s.ServiceName));}try{if(matches.Count!=1)throw new InvalidDataException("Serviço ausente ou ambíguo.");rows=Query("SELECT Name,PathName,State,ProcessId FROM Win32_Service WHERE Name='"+matches[0].ServiceName.Replace("'","''")+"'","Name","PathName","State","ProcessId");}finally{foreach(var s in matches)s.Dispose();}}}
         if(rows.Count!=1)throw new InvalidDataException("Serviço ausente ou ambíguo.");
-        string command=Json.Str(rows[0],"PathName").Trim(),exe;
-        if(command.StartsWith("\"")){int close=command.IndexOf('"',1);if(close<0)throw new InvalidDataException();exe=command.Substring(1,close-1);}else{int space=command.IndexOf(' ');exe=space<0?command:command.Substring(0,space);}
-        if(!String.Equals(Path.GetFullPath(exe),Executable(t),StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("Caminho do serviço diverge do catálogo.");return rows[0];
+        if(!CollectionPolicy.ServicePathMatches(Json.Str(rows[0],"PathName"),Executable(t),observationOnly))throw new InvalidDataException("Caminho do servico diverge do catalogo.");return rows[0];
     }
     static List<Dictionary<string,object>> Processes(Dictionary<string,object>t) {
         string exe=Executable(t),name=Path.GetFileName(exe).Replace("'","''");var result=new List<Dictionary<string,object>>();
-        foreach(var p in Query("SELECT ProcessId,ExecutablePath,CreationDate FROM Win32_Process WHERE Name='"+name+"'","ProcessId","ExecutablePath","CreationDate"))if(String.Equals(Convert.ToString(p["ExecutablePath"]),exe,StringComparison.OrdinalIgnoreCase))result.Add(p);return result;
+        bool inaccessible=false;foreach(var p in Query("SELECT ProcessId,ExecutablePath,CreationDate FROM Win32_Process WHERE Name='"+name+"'","ProcessId","ExecutablePath","CreationDate")){string observed=Json.Str(p,"ExecutablePath");if(String.IsNullOrWhiteSpace(observed))inaccessible=true;else if(String.Equals(observed,exe,StringComparison.OrdinalIgnoreCase))result.Add(p);}if(result.Count==0&&inaccessible)throw new UnauthorizedAccessException("Processo encontrado, mas caminho indisponivel para verificacao.");return result;
     }
     public static Dictionary<string,object> Status(Dictionary<string,object>t) {
         if(Json.Str(t,"id")=="system_cleanup")return new Dictionary<string,object>{{"target_id","system_cleanup"},{"kind","process"},{"is_running",null},{"health","unknown"},{"checked_at",Disk.Now()},{"maintenance_only",true},{"processes",new object[0]}};
-        string kind=Json.Str(t,"kind");if(kind!="service"&&kind!="process")throw new InvalidDataException("Tipo inválido.");var svc=kind=="service"?Service(t):null;var processes=CatalogPolicy.IsMonitorObserver(t)?Query("SELECT ProcessId,ExecutablePath,CreationDate FROM Win32_Process WHERE Name='monitor.exe'","ProcessId","ExecutablePath","CreationDate"):Processes(t);bool running=svc!=null?Json.Str(svc,"State")=="Running":processes.Count>0;
-        var details=new List<object>();foreach(var p in processes){DateTime start=ManagementDateTimeConverter.ToDateTime(Json.Str(p,"CreationDate"));details.Add(new {pid=Convert.ToInt32(p["ProcessId"]),executable=p["ExecutablePath"],started_at=start.ToUniversalTime().ToString("o"),uptime_seconds=(long)(DateTime.Now-start).TotalSeconds});}
+        string kind=Json.Str(t,"kind");if(kind!="service"&&kind!="process")throw new InvalidDataException("Tipo inválido.");var svc=kind=="service"?Service(t,true):null;var processes=svc!=null&&Json.Str(svc,"State")!="Running"?new List<Dictionary<string,object>>():CatalogPolicy.IsMonitorObserver(t)?Query("SELECT ProcessId,ExecutablePath,CreationDate FROM Win32_Process WHERE Name='monitor.exe'","ProcessId","ExecutablePath","CreationDate"):Processes(t);bool running=svc!=null?Json.Str(svc,"State")=="Running":processes.Count>0;
+        var details=new List<object>();foreach(var p in processes){DateTime? start=null;try{start=ManagementDateTimeConverter.ToDateTime(Json.Str(p,"CreationDate")).ToUniversalTime();}catch(ArgumentException){}details.Add(new {pid=Convert.ToInt32(p["ProcessId"]),executable=p["ExecutablePath"],started_at=start.HasValue?start.Value.ToString("o"):null,uptime_seconds=CollectionPolicy.Uptime(start,DateTime.UtcNow)});}
         int port=Json.Int(t,"health_tcp_port",0);string health=!running?"down":port>0?(Tcp("127.0.0.1",port,1000)?"healthy":"unhealthy"):"unknown";
         return new Dictionary<string,object>{{"target_id",Json.Str(t,"id")},{"kind",kind},{"is_running",running},{"health",health},{"checked_at",Disk.Now()},{"service_name",svc==null?null:svc["Name"]},{"processes",details}};
     }

@@ -53,3 +53,7 @@ Pendente: homologação Windows com app descartável autorizado, sessão ativa, 
 ## Correção 2.1.1 — Lixeira
 
 Helper de usuário ativo separado, consulta antes/depois, sucesso idempotente se vazia e HRESULT preservado. 54 testes portáveis do núcleo/regras; compilação do agente/helper em .NET Framework. Nenhuma Lixeira real Windows foi esvaziada neste ambiente. Ver CORRECAO-LIXEIRA-2.1.1.md para escopo, permissões e validação pendente.
+
+## 2.1.2 — precisao e custo da coleta
+
+60 testes portaveis do agente passaram; 31 testes backend/banco, typecheck e suites PowerShell (instalador 6, iniciador 12, catalogo 11, atualizador 9) passaram. Agente e helper compilados C# 5 / .NET Framework 4.7.2 / x86. Testes cobrem cache por IP/portas, falha transitória, cadencia monotona, uptime desconhecido e caminhos de servico. Detalhes em MELHORIAS-COLETA-2.1.2.md. Coletores Windows, SCM e consumo de RAM/CPU nao foram executados neste ambiente Linux; validar em uma loja antes de distribuir.

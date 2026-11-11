@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 namespace Uffa.InfraMonitor {
 public static class Program {
-    public const string Version="2.1.1";
+    public const string Version="2.1.2";
     static volatile bool stop;
     public static int Main(string[] args) {
         if(Array.IndexOf(args,"--service")>=0)return WindowsServiceHost.Run(args);
@@ -32,9 +32,8 @@ public static class Program {
         var journal=new CommandJournal(root,host.ToString(),()=>api.ClockUtc);object[] catalog=Json.Array(cfg,"catalog"),ips=new object[0];
         var clock=Stopwatch.StartNew();var next=new Dictionary<string,double>{{"poll",0},{"heartbeat",0},{"metrics",0},{"processes",0},{"ips",0},{"flush",0},{"memory",10}};
         Task worker=null;bool configured=false;int failures=0;
-        var ipReadings=new Dictionary<string,object>();
+        var ipReadings=new Dictionary<string,object>();var ipStamps=new Dictionary<string,double>();
         string lastIps=Path.Combine(root,"state","ip-readings.json");
-        if(File.Exists(lastIps))try{foreach(var o in Json.Array(Disk.Read(lastIps),"ips")){var ip=Json.Obj(o);ipReadings[Json.Str(ip,"ip")]=ip;}}catch{log.Event("ip_cache_invalid");}
         string cache=Path.Combine(root,"state","config-cache.json");string configFingerprint="";
         if(File.Exists(cache))try{var saved=Disk.Read(cache);intervals.Apply(Json.Obj(saved["intervals"]));ips=Json.Array(saved,"ips");if(ips.Length<=128){configured=true;configFingerprint=Json.Stringify(new {intervals=saved["intervals"],ips=ips});}}catch{log.Event("config_cache_invalid");}
         log.Event("started_v"+Version);
@@ -56,7 +55,10 @@ public static class Program {
                 try {
                     var remote=api.Call("agent-pull-config","GET");
                     if(Json.Int(remote,"schema_version",0)!=2)throw new InvalidDataException("Backend v2 obrigatório.");
-                    if(remote.ContainsKey("intervals"))intervals.Apply(Json.Obj(remote["intervals"]));if(remote.ContainsKey("ips"))ips=Json.Array(remote,"ips");if(ips.Length>128)throw new InvalidDataException();
+                    var candidate=new Intervals();candidate.Apply(ToObjects(intervals.Values));if(remote.ContainsKey("intervals"))candidate.Apply(Json.Obj(remote["intervals"]));
+                    object[] candidateIps=remote.ContainsKey("ips")?Json.Array(remote,"ips"):ips;if(candidateIps.Length>128)throw new InvalidDataException();
+                    var keys=new HashSet<string>();foreach(object item in candidateIps){var target=Json.Obj(item);string key=CollectionPolicy.ProbeKey(target);if(!keys.Add(key))throw new InvalidDataException("IP duplicado.");int seconds=Json.Int(target,"interval_seconds",candidate.Values["ips"]);if(seconds!=0&&(seconds<60||seconds>86400))throw new InvalidDataException("Intervalo de IP invalido.");}
+                    intervals.Apply(ToObjects(candidate.Values));ips=candidateIps;
                     string fingerprint=Json.Stringify(new {intervals=intervals.Values,ips=ips});if(configFingerprint!=fingerprint){next["ips"]=now;configFingerprint=fingerprint;Disk.Write(cache,new {intervals=intervals.Values,ips=ips});}configured=true;failures=0;
                     foreach(object command in Json.Array(remote,"pending_commands")){if(stop)break;try{commands.Enqueue(Json.Obj(command));}catch{log.Event("command_envelope_rejected");}}
                 } catch(ApiError e){log.Event("poll_"+"http_"+e.Status+"_"+ApiError.Kind(e.Status));failures++;} catch {log.Event("poll_contract_or_command_error");failures++;}
@@ -99,12 +101,12 @@ public static class Program {
                         if(selected=="metrics")body=new {schema_version=2,observation_id=Guid.NewGuid().ToString(),metrics=WindowsPlatform.Metrics()};
                         else if(selected=="ips") {
                             var results=new List<object>();var retained=new Dictionary<string,object>();
-                            foreach(object o in targets){var target=Json.Obj(o);string key=Json.Str(target,"ip");int seconds=Json.Int(target,"interval_seconds",ipDefault);if(seconds==0)seconds=ipDefault;if(seconds<60||seconds>86400)throw new InvalidDataException("Intervalo de IP inválido.");object prior=null;bool due=true;
-                                if(ipReadings.TryGetValue(key,out prior)){DateTime last;if(DateTime.TryParse(Json.Str(Json.Obj(prior),"checked_at"),out last))due=(DateTime.UtcNow-last.ToUniversalTime()).TotalSeconds>=seconds;}
-                                object reading=due?Json.Parse(Json.Stringify(WindowsPlatform.Probe(target,Math.Max(250,Math.Min(3000,Json.Int(cfg,"probe_timeout_ms",1500)))))):prior;
-                                results.Add(reading);retained[key]=reading;
+                            foreach(object o in targets){if(stop)throw new OperationCanceledException();var target=Json.Obj(o);string key=CollectionPolicy.ProbeKey(target);int seconds=Json.Int(target,"interval_seconds",ipDefault);if(seconds==0)seconds=ipDefault;if(seconds<60||seconds>86400)throw new InvalidDataException("Intervalo de IP inválido.");object prior=null;bool due=true;
+                                double last;if(ipReadings.TryGetValue(key,out prior)&&ipStamps.TryGetValue(key,out last))due=CollectionPolicy.Due(clock.Elapsed.TotalSeconds,last,seconds);
+                                object reading=due?WindowsPlatform.Probe(target,Math.Max(250,Math.Min(3000,Json.Int(cfg,"probe_timeout_ms",1500)))):prior;
+                                if(due)ipStamps[key]=clock.Elapsed.TotalSeconds;results.Add(reading);retained[key]=reading;
                             }
-                            ipReadings=retained;Disk.Write(lastIps,new {ips=results});body=new {schema_version=2,observation_id=Guid.NewGuid().ToString(),kind="ips",checked_at=Disk.Now(),ips=results};
+                            ipReadings=retained;foreach(string key in new List<string>(ipStamps.Keys))if(!retained.ContainsKey(key))ipStamps.Remove(key);Disk.Write(lastIps,new {ips=results});body=new {schema_version=2,observation_id=Guid.NewGuid().ToString(),kind="ips",checked_at=Disk.Now(),ips=results};
                         }
                         else {var results=new List<object>();foreach(object t in catalog){try{results.Add(WindowsPlatform.Status(Json.Obj(t)));}catch{results.Add(new {target_id=Json.Str(Json.Obj(t),"id"),checked_at=Disk.Now(),is_running=(bool?)null,health="unknown",error="local_configuration_or_access_error"});}}body=new {schema_version=2,observation_id=Guid.NewGuid().ToString(),kind="processes",checked_at=Disk.Now(),targets=results};}
                         Disk.Write(Path.Combine(root,"state","outbox",selected+".json"),body);
@@ -116,6 +118,7 @@ public static class Program {
         return 0;
         }
     }
+    static Dictionary<string,object> ToObjects(Dictionary<string,int> values) {var result=new Dictionary<string,object>();foreach(var pair in values)result[pair.Key]=pair.Value;return result;}
     static object CatalogSummary(object[] catalog) {
         var summary=new List<object>();foreach(object o in catalog){var t=Json.Obj(o);summary.Add(new {id=Json.Str(t,"id"),kind=Json.Str(t,"kind"),allowed_operations=Json.Array(t,"allowed_operations"),allow_force=Json.Bool(t,"allow_force")});}return summary;
     }
