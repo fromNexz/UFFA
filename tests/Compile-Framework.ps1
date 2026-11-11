@@ -15,3 +15,11 @@ $compilation=[Microsoft.CodeAnalysis.CSharp.CSharpCompilation]::Create('InfraMon
 $outStream=[IO.File]::Create($Output)
 try { $result=$compilation.Emit($outStream);foreach ($d in $result.Diagnostics) { Write-Host $d.ToString() };if (!$result.Success) { throw 'Compilação .NET Framework falhou.' } } finally { $outStream.Dispose() }
 Write-Host "Compilado C# 5 / .NET Framework 4.7.2 / x86: $Output"
+
+$helperTree=[Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree]::ParseText([IO.File]::ReadAllText((Join-Path $Repository 'agent/helper/UserTask.cs')),$parse)
+$helperTrees=[Collections.Generic.List[Microsoft.CodeAnalysis.SyntaxTree]]::new();$helperTrees.Add($helperTree)
+$helperCompilation=[Microsoft.CodeAnalysis.CSharp.CSharpCompilation]::Create('InfraMonitor.UserTask',$helperTrees,$refs,$options)
+$helperOutput=Join-Path (Split-Path $Output) 'InfraMonitor.UserTask.exe'
+$helperStream=[IO.File]::Create($helperOutput)
+try { $helperResult=$helperCompilation.Emit($helperStream);foreach ($d in $helperResult.Diagnostics) { Write-Host $d.ToString() };if (!$helperResult.Success) { throw 'Compilacao do helper falhou.' } } finally { $helperStream.Dispose() }
+Write-Host "Helper C# 5 / .NET Framework 4.7.2 / x86: $helperOutput"

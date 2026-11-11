@@ -36,9 +36,9 @@ internal static class NativeWindows {
     [DllImport("userenv.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool GetUserProfileDirectory(SafeFileHandle token,StringBuilder path,ref uint size);
     [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool CreateProcessAsUser(SafeFileHandle token,string app,StringBuilder command,IntPtr processAttributes,IntPtr threadAttributes,bool inherit,uint flags,IntPtr environment,string directory,ref StartupInfo startup,out ProcessInfo info);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-    [DllImport("ole32.dll")] static extern int CoInitializeEx(IntPtr reserved,uint mode);
-    [DllImport("ole32.dll")] static extern void CoUninitialize();
-    [DllImport("shell32.dll",CharSet=CharSet.Unicode)] static extern int SHEmptyRecycleBin(IntPtr window,string root,uint flags);
+    [DllImport("kernel32.dll",SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle,uint milliseconds);
+    [DllImport("kernel32.dll",SetLastError=true)] static extern bool GetExitCodeProcess(IntPtr process,out uint code);
+    [DllImport("kernel32.dll",SetLastError=true)] static extern bool TerminateProcess(IntPtr process,uint code);
     static MaintenanceFailure Failure(string stage){return new MaintenanceFailure(stage+" (Win32="+Marshal.GetLastWin32Error()+").");}
     static void EnablePrivilege(string name) {
         SafeFileHandle token;if(!OpenProcessToken(GetCurrentProcess(),0x20|0x8,out token))throw Failure("Token do servico indisponivel");
@@ -83,7 +83,19 @@ internal static class NativeWindows {
             if(!CreateProcessAsUser(token,exe,new StringBuilder("\""+exe+"\""+(tray?" --tray":"")),IntPtr.Zero,IntPtr.Zero,false,0x400|0x08000000,environment,Path.GetDirectoryName(exe),ref startup,out info))throw Failure("Falha ao iniciar aplicativo no usuario ativo");
             try{return info.Pid;}finally{if(info.Thread!=IntPtr.Zero)CloseHandle(info.Thread);if(info.Process!=IntPtr.Zero)CloseHandle(info.Process);}
         }
-        internal void EmptyRecycleBin(){int init=CoInitializeEx(IntPtr.Zero,2);if(init<0)throw new MaintenanceFailure("Contexto Shell da lixeira indisponivel.");try{using(WindowsIdentity.Impersonate(token.DangerousGetHandle())){int hr=SHEmptyRecycleBin(IntPtr.Zero,@"C:\",1|2|4);if(hr<0)throw new MaintenanceFailure("Lixeira do usuario ativo nao concluida (HRESULT="+hr+").");}}finally{CoUninitialize();}}
+        internal void EmptyRecycleBin(Action checkCancelled){
+            string helper=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"InfraMonitor.UserTask.exe");
+            if(!File.Exists(helper))throw new MaintenanceFailure("Lixeira: helper local ausente; atualize o pacote completo.");
+            VerifyExecutableAccess(helper);string sid;using(var identity=new WindowsIdentity(token.DangerousGetHandle())){if(identity.User==null)throw new MaintenanceFailure("Lixeira: SID do usuario ativo indisponivel.");sid=identity.User.Value;}
+            var startup=new StartupInfo{cb=Marshal.SizeOf(typeof(StartupInfo)),desktop=@"winsta0\default",flags=1,show=0};ProcessInfo info;
+            if(!CreateProcessAsUser(token,helper,new StringBuilder("\""+helper+"\" --empty-recycle-bin "+sid),IntPtr.Zero,IntPtr.Zero,false,0x400|0x08000000,environment,Path.GetDirectoryName(helper),ref startup,out info))throw Failure("Lixeira: falha ao iniciar helper na sessao ativa");
+            bool finished=false;
+            try{
+                var timer=System.Diagnostics.Stopwatch.StartNew();
+                while(true){checkCancelled();uint wait=WaitForSingleObject(info.Process,200);if(wait==0){finished=true;break;}if(wait==0xFFFFFFFF)throw Failure("Lixeira: falha ao aguardar helper");if(timer.Elapsed.TotalSeconds>60)throw new MaintenanceFailure("Lixeira: helper nao confirmou conclusao em 60s.");}
+                uint code;if(!GetExitCodeProcess(info.Process,out code))throw Failure("Lixeira: resultado do helper indisponivel");if(code!=0)throw new MaintenanceFailure("Lixeira do usuario ativo nao concluida (HRESULT=0x"+code.ToString("X8")+").");
+            }finally{if(!finished){TerminateProcess(info.Process,1);WaitForSingleObject(info.Process,5000);}if(info.Thread!=IntPtr.Zero)CloseHandle(info.Thread);if(info.Process!=IntPtr.Zero)CloseHandle(info.Process);}
+        }
         public void Dispose(){if(environment!=IntPtr.Zero)DestroyEnvironmentBlock(environment);token.Dispose();}
     }
 }

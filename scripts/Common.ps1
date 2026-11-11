@@ -48,6 +48,12 @@ function Assert-Package([string]$PackageRoot) {
     $exe=Join-Path $PackageRoot 'bin/InfraMonitor.Agent.exe'
     $v= & $exe --version
     if ($LASTEXITCODE -ne 0 -or $v -ne $manifest.version) { throw 'Versão do executável diverge do manifesto.' }
+    if ([version]$manifest.version -ge [version]'2.1.1') {
+        $helper=Join-Path $PackageRoot 'bin/InfraMonitor.UserTask.exe'
+        if (!(Test-Path $helper)) { throw 'Helper de usuario ausente no pacote.' }
+        $helperVersion=& $helper --version
+        if ($LASTEXITCODE -ne 0 -or $helperVersion -ne $manifest.version) { throw 'Versao do helper diverge do pacote.' }
+    }
     return $manifest
 }
 function Invoke-Sc([string[]]$Arguments) {
@@ -76,4 +82,19 @@ function Get-IdentityFromLegacy([string]$Directory) {
     $parsed=[Guid]::Empty
     if (![Guid]::TryParse($id,[ref]$parsed) -or $secret.Length -lt 32) { throw 'Identidade antiga inválida; não foi alterada.' }
     return @{host_id=$parsed.ToString();token=$secret}
+}
+
+function Set-UserTaskPermissions([string]$Root) {
+    $helper=Join-Path $Root 'bin/InfraMonitor.UserTask.exe'
+    if (!(Test-Path -LiteralPath $helper -PathType Leaf)) { throw 'Helper de usuario ausente no pacote.' }
+    $authenticated=New-Object Security.Principal.SecurityIdentifier('S-1-5-11')
+    # Traverse only, not directory listing or inherited access to config/identity.
+    foreach ($folder in @($Root,(Join-Path $Root 'bin'))) {
+        $acl=Get-Acl -LiteralPath $folder
+        $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($authenticated,'Traverse','None','None','Allow'))
+        Set-Acl -LiteralPath $folder -AclObject $acl
+    }
+    $fileAcl=Get-Acl -LiteralPath $helper
+    $fileAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($authenticated,'ReadAndExecute','Allow'))
+    Set-Acl -LiteralPath $helper -AclObject $fileAcl
 }

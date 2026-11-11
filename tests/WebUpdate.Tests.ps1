@@ -13,4 +13,6 @@ Check 'Nao faz downgrade' ((Get-WebUpdateDecision '3.0.0' '2.1.0' $true $true) -
 Check 'Sem identidade nao registra automaticamente' (Refused { Get-WebUpdateDecision '2.0.0' '2.1.0' $true $false })
 Check 'Sem servico nao confunde instalacao com update' (Refused { Get-WebUpdateDecision '2.0.0' '2.1.0' $false $true })
 Check 'Versao invalida nao prossegue' (Refused { Get-WebUpdateDecision 'broken' '2.1.0' $true $true })
+Check 'Patch 2.1.0 preserva catalogo e permissoes' (!(Test-CatalogMigration '2.1.0'))
+Check 'Versoes anteriores recebem migracao ja autorizada' (Test-CatalogMigration '2.0.1')
 Write-Host "$count testes do atualizador web passaram; nenhum servico Windows foi alterado."

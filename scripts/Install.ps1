@@ -32,6 +32,7 @@ try {
     Set-PrivateAcl $Root
     if (!(Test-Path (Join-Path $Root 'scripts'))) { Copy-Item -LiteralPath (Join-Path $package 'scripts') -Destination (Join-Path $Root 'scripts') -Recurse }
     Copy-Item -LiteralPath (Join-Path $package 'bin/InfraMonitor.Agent.exe') -Destination (Join-Path $Root 'bin/InfraMonitor.Agent.exe')
+    Copy-Item -LiteralPath (Join-Path $package 'bin/InfraMonitor.UserTask.exe') -Destination (Join-Path $Root 'bin/InfraMonitor.UserTask.exe')
     $cfg=if ($Resume -and (Test-Path (Join-Path $Root 'config/agent.json'))) { Read-Json (Join-Path $Root 'config/agent.json') } else { Read-Json (Join-Path $package 'agent/config/agent.example.json') };$cfg.api_base_url=$ApiBaseUrl.TrimEnd('/')
     if ($MonitoringOnly) {
         . (Join-Path $PSScriptRoot 'ReadOnlyConfig.ps1')
@@ -106,6 +107,7 @@ try {
     # Protect service DACL: System + local Administrators may control or reconfigure it.
     Invoke-Sc -Arguments @('sdset','InfraMonitorAgent','D:(A;;CCLCSWRPWPDTLOCRSDRCWDWO;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)')
     }
+    Set-UserTaskPermissions $Root
     Start-Service InfraMonitorAgent
     Wait-AgentHealthy $Root $manifest.version
     if ($Mode -eq 'Migrate' -and !$reuse) { Set-Service -Name $LegacyServiceName -StartupType Disabled }

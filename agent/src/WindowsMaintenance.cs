@@ -105,7 +105,7 @@ public static class WindowsMaintenance {
                 }}catch(MaintenanceFailure){warnings.Add("TEMP inacessivel ou link preservado");}
             }
             if(bounded)warnings.Add("varredura limitada a 20 mil entradas/100s");
-            time.Check();if(user!=null){try{user.EmptyRecycleBin();}catch(MaintenanceFailure){warnings.Add("lixeira nao concluida");}}
+            time.Check();if(user!=null){try{user.EmptyRecycleBin(()=>time.Check());}catch(MaintenanceFailure e){warnings.Add(e.Message);}catch(Exception e){warnings.Add("Lixeira: falha "+e.GetType().Name+".");}}
             time.Check();bool trim=RunTrim(time);if(!trim)warnings.Add("TRIM nao confirmado/nao suportado");
             double mb=Math.Max(0,(new DriveInfo(@"C:\").AvailableFreeSpace-before)/1048576.0);
             string result="Limpeza: "+files+" temporarios antigos removidos ("+(deleted/1048576.0).ToString("0.00",CultureInfo.InvariantCulture)+" MB); "+skipped+" itens preservados. C: "+mb.ToString("0.00",CultureInfo.InvariantCulture)+" MB livres adicionais (estimativa). TRIM "+(trim?"concluido":"nao confirmado")+".";

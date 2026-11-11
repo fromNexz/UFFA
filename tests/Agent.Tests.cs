@@ -83,6 +83,10 @@ public static class AgentTests {
     var pending=j.Pending().ToList();Assert(effects==1&&pending.Count==1,"Lost result or repeated effect");j.Ack(pending[0]);Assert(!j.Pending().Any(),"Retry ack");finished.Dispose();
   });
 
+  test("Recycle helper no-op only on successful empty query",()=>{Assert(Uffa.UserTask.RecyclePolicy.AlreadyEmpty(0,0),"Empty failed");Assert(!Uffa.UserTask.RecyclePolicy.AlreadyEmpty(unchecked((int)0x80004005),0),"Failed query treated as empty");Assert(!Uffa.UserTask.RecyclePolicy.AlreadyEmpty(0,2),"Nonempty ignored");});
+  test("Recycle HRESULT preserved in hexadecimal",()=>Assert(Uffa.UserTask.RecyclePolicy.Code(unchecked((int)0x80070005))=="0x80070005","HRESULT lost"));
+  test("Recycle helper fixed action and explicit user SID",()=>{Assert(Uffa.UserTask.RecyclePolicy.ValidArguments(new[]{"--empty-recycle-bin","S-1-5-21-123-456-789-1001"}),"SID rejected");Assert(!Uffa.UserTask.RecyclePolicy.ValidArguments(new[]{"--empty-recycle-bin","C:\\"}),"Path accepted");Assert(!Uffa.UserTask.RecyclePolicy.ValidArguments(new[]{"--empty-recycle-bin","S-1-5-21-1","D:"}),"Other drive accepted");Assert(!Uffa.UserTask.RecyclePolicy.ValidArguments(new[]{"--delete-all","S-1-5-21-1"}),"Other action accepted");});
+  test("Recycle query structure matches SDK pack 1 size 20",()=>Assert(Uffa.UserTask.EntryPoint.QueryStructureSize()==20,"SHQUERYRBINFO ABI mismatch"));
   return passed.ToArray();
  }
 }

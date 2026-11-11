@@ -8,7 +8,7 @@ $rows=New-Object 'Collections.Generic.List[object]'
 $end=[DateTime]::UtcNow.AddMinutes($Minutes)
 while ([DateTime]::UtcNow -lt $end) {
     $svc=Get-CimInstance Win32_Service -Filter "Name='InfraMonitorAgent'"
-    $processes=@(Get-Process -Name 'InfraMonitor.Agent' -ErrorAction SilentlyContinue)
+    $processes=@(Get-Process -Name 'InfraMonitor.Agent','InfraMonitor.UserTask' -ErrorAction SilentlyContinue)
     if ($svc -and $svc.ProcessId) { $wrapper=Get-Process -Id $svc.ProcessId -ErrorAction SilentlyContinue;if ($wrapper -and $wrapper.ProcessName -ne 'InfraMonitor.Agent') { $processes+= $wrapper } }
     $rows.Add([pscustomobject]@{at=[DateTime]::UtcNow.ToString('o');pids=($processes.Id -join ',');working_set_mb=[Math]::Round((($processes|Measure-Object WorkingSet64 -Sum).Sum/1MB),2);private_mb=[Math]::Round((($processes|Measure-Object PrivateMemorySize64 -Sum).Sum/1MB),2);service_running=($null -ne $svc -and $svc.State -eq 'Running')})
     Start-Sleep -Seconds 1

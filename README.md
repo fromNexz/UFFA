@@ -1,4 +1,4 @@
-# Infra Monitor UFFA 2.1.0
+# Infra Monitor UFFA 2.1.1
 
 Nova implementação para monitorar lojas Windows e receber operações administrativas por consulta HTTPS. Desenvolvida a partir da documentação Lovable fornecida, sem os códigos antigos. Não aplica alterações no banco ou nos servidores automaticamente.
 
@@ -12,7 +12,11 @@ Nova implementação para monitorar lojas Windows e receber operações administ
 
 **RAM:** meta preferencial menor que 50 MB; critério obrigatório menor que 100 MB, tanto working set quanto memória privada, incluindo NSSM se usado. Ainda não medido no Windows. Existe reinício preventivo ao observar 80 MB privados ou 90 MB de working set; isso NÃO é um limite rígido do sistema operacional nem prova de atendimento. Medir por pelo menos 65 minutos antes de distribuir.
 
-## Atualização atual — manutenção remota 2.1.0
+## Atualização atual — correção da Lixeira 2.1.1
+
+Veja [CORRECAO-LIXEIRA-2.1.1.md](docs/CORRECAO-LIXEIRA-2.1.1.md). A etapa da Lixeira roda em helper curto sob o usuário ativo, sem apagar `C:\$Recycle.Bin\*` globalmente. Atualizações de 2.1.0 preservam o catálogo/permissões existentes; UUID/token continuam intactos.
+
+## Manutenção remota 2.1.0 (histórico)
 
 Veja [ATUALIZACAO-2.1.0.md](docs/ATUALIZACAO-2.1.0.md) para atualizar agentes existentes via GitHub sem recadastro. O catálogo desta versão habilita FrCaixa, RustDesk e limpeza Windows por pedido administrativo, conforme nova autorização de 09/11/2026. Ações reais exigem piloto Windows; não são executadas ao instalar/atualizar. Guias 2.0.x permanecem como histórico da política anterior de somente monitoramento.
 

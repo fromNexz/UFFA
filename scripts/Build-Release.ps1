@@ -12,6 +12,9 @@ try {
     $sources=@(Get-ChildItem (Join-Path $Repository 'agent/src/*.cs')|ForEach-Object FullName)
     & $csc /nologo /optimize+ /target:exe /platform:x86 /r:System.Web.Extensions.dll /r:System.Management.dll /r:System.ServiceProcess.dll ("/out:$exe") @sources
     if ($LASTEXITCODE -ne 0) { throw 'Compilação falhou.' }
+    $userExe=Join-Path $stage 'bin/InfraMonitor.UserTask.exe'
+    & $csc /nologo /optimize+ /target:exe /platform:x86 ("/out:$userExe") (Join-Path $Repository 'agent/helper/UserTask.cs')
+    if ($LASTEXITCODE -ne 0) { throw 'Compilacao do helper falhou.' }
     $version= & $exe --version
     if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d+\.\d+\.\d+$') { throw 'Executável não confirmou versão.' }
     Copy-Item (Join-Path $Repository 'scripts') (Join-Path $stage 'scripts') -Recurse

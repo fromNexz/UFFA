@@ -1,6 +1,6 @@
 ﻿param([string]$Repository=(Split-Path $PSScriptRoot -Parent))
 $ErrorActionPreference='Stop'
-$source=@('agent/src/Core.cs','agent/src/RemoteCommands.cs','agent/src/Program.cs','tests/Agent.Tests.cs')|ForEach-Object { Join-Path $Repository $_ }
+$source=@('agent/src/Core.cs','agent/src/RemoteCommands.cs','agent/src/Program.cs','agent/helper/UserTask.cs','tests/Agent.Tests.cs')|ForEach-Object { Join-Path $Repository $_ }
 if ($PSVersionTable.PSEdition -eq 'Core') {
     $refs=@(Get-ChildItem (Join-Path $PSHOME 'ref/*.dll')|ForEach-Object FullName)
     Add-Type -Path $source -ReferencedAssemblies $refs -CompilerOptions @('/define:PORTABLE_TEST','/nowarn:SYSLIB0014') -ErrorAction Stop

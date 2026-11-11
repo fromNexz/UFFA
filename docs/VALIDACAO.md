@@ -49,3 +49,7 @@ Nova autorização explícita de controle remoto substitui a política anterior 
 Verificações locais: 50 testes C# do núcleo/fila/políticas; 31 testes TypeScript/contratos/PostgreSQL isolado; 6 verificações dos scripts comuns; 12 decisões do instalador web; 11 verificações do catálogo remoto; 7 decisões do atualizador web; 44 regras da limpeza antiga (compatibilidade). Os testes usam doubles para APIs Windows e não comprovam WTS, SCM, Shell, NTFS ou TRIM reais. Compilação C# 5/.NET Framework 4.7.2/x86 aprovada. Typecheck aprovado. Não houve migração de banco nem operação remota em loja real.
 
 Pendente: homologação Windows com app descartável autorizado, sessão ativa, reinício RustDesk, lixeira/temporários/TRIM, perda de rede, reboot/rollback e medição de RAM durante manutenção. Guia completo em ATUALIZACAO-2.1.0.md. Publicação de código/pacote não equivale a homologação nas lojas.
+
+## Correção 2.1.1 — Lixeira
+
+Helper de usuário ativo separado, consulta antes/depois, sucesso idempotente se vazia e HRESULT preservado. 54 testes portáveis do núcleo/regras; compilação do agente/helper em .NET Framework. Nenhuma Lixeira real Windows foi esvaziada neste ambiente. Ver CORRECAO-LIXEIRA-2.1.1.md para escopo, permissões e validação pendente.
