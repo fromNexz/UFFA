@@ -57,3 +57,7 @@ Helper de usuário ativo separado, consulta antes/depois, sucesso idempotente se
 ## 2.1.2 — precisao e custo da coleta
 
 60 testes portaveis do agente passaram; 31 testes backend/banco, typecheck e suites PowerShell (instalador 6, iniciador 12, catalogo 11, atualizador 9) passaram. Agente e helper compilados C# 5 / .NET Framework 4.7.2 / x86. Testes cobrem cache por IP/portas, falha transitória, cadencia monotona, uptime desconhecido e caminhos de servico. Detalhes em MELHORIAS-COLETA-2.1.2.md. Coletores Windows, SCM e consumo de RAM/CPU nao foram executados neste ambiente Linux; validar em uma loja antes de distribuir.
+
+## 2.1.3 — transicoes de servicos e diagnostico
+
+67 testes portaveis passaram, incluindo transicoes SCM simuladas, timeout, parada nao aceita, corrida de estado final e preservacao de codigo Win32 interno sem mensagens sensiveis. Agente e helper compilados para C# 5 / .NET Framework 4.7.2 / x86. Validacao real SCM/WTS/RustDesk pendente de uma loja Windows; o erro anterior sem etapa/codigo nao permite atribuir a causa com certeza.

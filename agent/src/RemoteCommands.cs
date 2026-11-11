@@ -7,7 +7,26 @@ namespace Uffa.InfraMonitor {
 public sealed class MaintenanceFailure:Exception {
     public MaintenanceFailure(string message):base(message.Length>500?message.Substring(0,500):message){}
 }
+// ServiceControllerStatus numeric values. Delegates keep transitions testable without SCM.
+public static class ServiceTransition {
+    static bool Pending(int state){return state==2||state==3||state==5||state==6;}
+    public static void Apply(bool start,Func<int> read,Action issue,Func<bool> canStop,Action<int> wait) {
+        int state=read(),count=0,desired=start?4:1;
+        while(Pending(state)&&count++<125){wait(200);state=read();}
+        if(Pending(state))throw new MaintenanceFailure("Servico permaneceu em transicao por 25s; nenhuma nova ordem enviada.");
+        if(state==desired)return;
+        if(!start&&!canStop())throw new MaintenanceFailure("Servico nao aceita parada no estado atual; processos preservados.");
+        try{issue();}catch(InvalidOperationException){if(read()==desired)return;throw;}
+        count=0;while((state=read())!=desired&&count++<125)wait(200);
+        if(state!=desired)throw new MaintenanceFailure(start?"Servico nao confirmou inicializacao em 25s.":"Servico nao confirmou parada em 25s.");
+    }
+}
 public static class MaintenancePolicy {
+    public static string ActionFailure(string operation,string stage,Exception error) {
+        var native=error;int? win32=null;for(int depth=0;native!=null&&depth<8;depth++,native=native.InnerException){var value=native as System.ComponentModel.Win32Exception;if(value!=null){win32=value.NativeErrorCode;break;}}
+        string code=win32.HasValue?"Win32="+win32.Value:"HRESULT=0x"+error.HResult.ToString("X8");
+        return "Acao "+operation+" falhou na etapa "+stage+" ("+error.GetType().Name+"; "+code+"). Nenhuma credencial foi alterada.";
+    }
     public const string RustDeskPath=@"C:\Program Files\RustDesk\RustDesk.exe";
     public static string FullLocalExe(string value) {
         if(value.Length<4||!Char.IsLetter(value[0])||value[1]!=':'||value[2]!='\\'||!value.EndsWith(".exe",StringComparison.OrdinalIgnoreCase)||value.IndexOfAny(new[]{'"','\r','\n'})>=0||value.Contains(".."))throw new MaintenanceFailure("Executavel local absoluto invalido.");

@@ -43,39 +43,39 @@ public static class WindowsMaintenance {
             if(ServiceExe(line).Equals(exe,StringComparison.OrdinalIgnoreCase))found.Add(Json.Str(r,"Name"));
         }if(found.Count>1)throw new MaintenanceFailure("Mais de um servico corresponde ao executavel; escolha local univoca necessaria.");return found;
     }
-    static void StopService(string name,Deadline time){using(var s=new ServiceController(name)){s.Refresh();if(s.Status==ServiceControllerStatus.Stopped)return;s.Stop();var until=Stopwatch.StartNew();while(until.Elapsed.TotalSeconds<25){time.Check();s.Refresh();if(s.Status==ServiceControllerStatus.Stopped)return;time.Wait(200);}throw new MaintenanceFailure("Servico nao confirmou parada em 25 segundos.");}}
-    static void StartService(string name,Deadline time){using(var s=new ServiceController(name)){s.Refresh();if(s.Status==ServiceControllerStatus.Running)return;s.Start();var until=Stopwatch.StartNew();while(until.Elapsed.TotalSeconds<25){time.Check();s.Refresh();if(s.Status==ServiceControllerStatus.Running)return;time.Wait(200);}throw new MaintenanceFailure("Servico nao confirmou inicializacao em 25 segundos.");}}
+    static void StopService(string name,Deadline time){using(var s=new ServiceController(name)){ServiceTransition.Apply(false,()=>{time.Check();s.Refresh();return (int)s.Status;},()=>s.Stop(),()=>s.CanStop,ms=>time.Wait(ms));}}
+    static void StartService(string name,Deadline time){using(var s=new ServiceController(name)){ServiceTransition.Apply(true,()=>{time.Check();s.Refresh();return (int)s.Status;},()=>s.Start(),()=>true,ms=>time.Wait(ms));}}
     static void StopOne(AppProcess expected,bool force,Deadline time,bool immediately) {
         Process p;try{p=Process.GetProcessById(expected.Id);}catch(ArgumentException){return;}
-        using(p){if(p.Handle==IntPtr.Zero)throw new MaintenanceFailure("Processo indisponivel para validar identidade.");
+        using(p){try{if(p.HasExited)return;if(p.Handle==IntPtr.Zero)throw new MaintenanceFailure("Processo indisponivel para validar identidade.");
             var current=Query("SELECT ExecutablePath,CreationDate FROM Win32_Process WHERE ProcessId="+expected.Id,"ExecutablePath","CreationDate");if(current.Count==0)return;
             if(!Json.Str(current[0],"ExecutablePath").Equals(expected.Path,StringComparison.OrdinalIgnoreCase)||Json.Str(current[0],"CreationDate")!=expected.Created||Math.Abs((p.StartTime.ToUniversalTime()-ManagementDateTimeConverter.ToDateTime(expected.Created).ToUniversalTime()).TotalSeconds)>1)throw new MaintenanceFailure("PID mudou; processo preservado.");
             if(p.HasExited)return;
             time.Check();if(!immediately){bool close=p.CloseMainWindow();if(close){var wait=Stopwatch.StartNew();while(wait.Elapsed.TotalSeconds<2){time.Check();if(p.WaitForExit(100))return;}}}
             if(!force)throw new MaintenanceFailure("Aplicativo nao encerrou normalmente; forca nao autorizada.");
             if(p.HasExited)return;try{p.Kill();}catch(InvalidOperationException){if(p.HasExited)return;throw;}var timer=Stopwatch.StartNew();while(timer.Elapsed.TotalSeconds<8){time.Check();if(p.WaitForExit(100))return;}throw new MaintenanceFailure("Processo nao confirmou encerramento.");
-        }
+        }catch(InvalidOperationException){if(p.HasExited)return;throw;}}
     }
     static string ProcessAction(Dictionary<string,object>target,string operation,Deadline time,bool rust) {
         string exe=rust?MaintenancePolicy.RustDeskPath:MaintenancePolicy.FullLocalExe(Json.Str(target,"executable"));
         if(!File.Exists(exe))throw new MaintenanceFailure(rust?"Executavel RustDesk nao encontrado em C:\\Program Files\\RustDesk\\RustDesk.exe":"Executavel FrCaixa nao encontrado no caminho local configurado.");
-        var before=Processes(exe,!rust);var services=Services(exe);var oldIds=new HashSet<int>();foreach(var p in before)oldIds.Add(p.Id);
         bool start=operation=="start"||operation=="restart",stop=operation=="stop"||operation=="restart"||operation=="kill";
-        NativeWindows.UserSession session=null;
+        NativeWindows.UserSession session=null;string stage="ler processos autorizados";
         try{
+            var before=Processes(exe,!rust);stage="identificar servico autorizado";var services=Services(exe);var oldIds=new HashSet<int>();foreach(var p in before)oldIds.Add(p.Id);stage="preparar sessao ativa";
             // RustDesk must have a GUI in the active user's desktop. FrCaixa uses SCM only for an exact service match.
-            if(start&&(rust||services.Count==0)){session=new NativeWindows.UserSession();session.VerifyExecutableAccess(exe);}
+            if(start&&(rust||services.Count==0)){session=new NativeWindows.UserSession();stage="verificar acesso do usuario ao executavel";session.VerifyExecutableAccess(exe);}
             if(operation=="start"){
                 foreach(var p in before)if(p.Path.Equals(exe,StringComparison.OrdinalIgnoreCase)&&(session==null||p.Session==session.SessionId))return (rust?"RustDesk":"FrCaixa")+" ja ativo. PID: "+p.Id;
             }
-            if(stop){foreach(string svc in services)StopService(svc,time);foreach(var p in Processes(exe,!rust))StopOne(p,Json.Bool(target,"allow_force"),time,operation=="kill");}
+            if(stop){stage="parar servico Windows";foreach(string svc in services)StopService(svc,time);stage="encerrar processos autorizados";foreach(var p in Processes(exe,!rust))StopOne(p,Json.Bool(target,"allow_force"),time,operation=="kill");}
             if(!start){if(Processes(exe,!rust).Count>0)throw new MaintenanceFailure("Ainda existem processos autorizados ativos apos encerramento.");return (rust?"RustDesk":"FrCaixa")+" encerrado; estado confirmado.";}
             if(rust&&operation=="restart")time.Wait(2000);
-            foreach(string svc in services)StartService(svc,time);
-            if(session!=null)session.Start(exe,rust);
-            var verify=Stopwatch.StartNew();while(verify.Elapsed.TotalSeconds<8){time.Check();foreach(var p in Processes(exe,!rust))if(p.Path.Equals(exe,StringComparison.OrdinalIgnoreCase)&&(operation!="restart"||!oldIds.Contains(p.Id))&&(session==null||p.Session==session.SessionId))return (rust?"RustDesk":"FrCaixa")+" "+(operation=="restart"?"reiniciado":"iniciado")+" com sucesso. Novo PID: "+p.Id+"; sessao "+p.Session+"; validacao "+verify.Elapsed.TotalSeconds.ToString("0.0",CultureInfo.InvariantCulture)+"s";time.Wait(200);}
+            stage="iniciar servico Windows";foreach(string svc in services)StartService(svc,time);
+            if(session!=null){stage="iniciar aplicativo na sessao ativa";session.Start(exe,rust);}
+            stage="validar novo PID na sessao ativa";var verify=Stopwatch.StartNew();while(verify.Elapsed.TotalSeconds<8){time.Check();foreach(var p in Processes(exe,!rust))if(p.Path.Equals(exe,StringComparison.OrdinalIgnoreCase)&&(operation!="restart"||!oldIds.Contains(p.Id))&&(session==null||p.Session==session.SessionId))return (rust?"RustDesk":"FrCaixa")+" "+(operation=="restart"?"reiniciado":"iniciado")+" com sucesso. Novo PID: "+p.Id+"; sessao "+p.Session+"; validacao "+verify.Elapsed.TotalSeconds.ToString("0.0",CultureInfo.InvariantCulture)+"s";time.Wait(200);}
             throw new MaintenanceFailure("Falha ao validar inicializacao do "+(rust?"RustDesk":"FrCaixa")+" apos 8 segundos.");
-        }catch(MaintenanceFailure){throw;}catch(Exception e){throw new MaintenanceFailure("Acao "+operation+" falhou ("+e.GetType().Name+"). Verifique servico, sessao ativa e permissoes locais.");}
+        }catch(MaintenanceFailure e){throw new MaintenanceFailure("Etapa "+stage+": "+e.Message);}catch(Exception e){throw new MaintenanceFailure(MaintenancePolicy.ActionFailure(operation,stage,e));}
         finally{if(session!=null)session.Dispose();}
     }
     static string Cleanup(Deadline time,Func<DateTime>trustedUtc) {

@@ -1,0 +1,13 @@
+# PowerShell como administrador. Atualiza o agente e o helper, sem recadastro.
+& {
+    $ErrorActionPreference = 'Stop'
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $arquivo = Join-Path $env:TEMP ("atualizar-infra-" + [guid]::NewGuid() + ".ps1")
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/fromNexz/UFFA/v2.1.3/maintenance/Atualizar-InfraMonitor-Web.ps1' -OutFile $arquivo
+        if ((Get-FileHash $arquivo -Algorithm SHA256).Hash -ne 'acb5924cf6abe4b5867f6bf84122ba56d19b57305fca8392ac89bf04c3f9fe0f') { throw 'Integridade invalida. Atualizacao cancelada.' }
+        Unblock-File $arquivo
+        powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $arquivo
+        if ($LASTEXITCODE -ne 0) { throw 'Atualizacao interrompida; confira a mensagem acima.' }
+    } finally { Remove-Item $arquivo -Force -ErrorAction SilentlyContinue }
+}

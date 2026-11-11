@@ -1,4 +1,4 @@
-# Infra Monitor UFFA 2.1.2
+# Infra Monitor UFFA 2.1.3
 
 Nova implementação para monitorar lojas Windows e receber operações administrativas por consulta HTTPS. Desenvolvida a partir da documentação Lovable fornecida, sem os códigos antigos. Não aplica alterações no banco ou nos servidores automaticamente.
 
@@ -79,3 +79,5 @@ A compilação é feita com `csc.exe` distribuído com o .NET Framework, sem SDK
 Compilação e testes locais não equivalem a instalação ou integração publicada. Ver [relatório de validação](docs/VALIDACAO.md). Não houve acesso ao código anterior, ao schema completo, a Windows real ou ao backend publicado. Não há rotas em produção comprovadas. Não foram aplicadas migrações. Alertas Teams e automação antiga exigem adaptação do código Lovable existente para excluir hosts migrados; não estão validados nem reimplementados aqui.
 
 Melhorias de coleta e desempenho 2.1.2: [detalhes e validacao](docs/MELHORIAS-COLETA-2.1.2.md).
+
+Correcao de transicoes e diagnostico de reinicio 2.1.3: [detalhes](docs/REINICIO-RUSTDESK-2.1.3.md).

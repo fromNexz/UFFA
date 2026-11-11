@@ -91,15 +91,15 @@ $stageRoot=Join-Path $env:ProgramData ('InfraMonitor-Web-'+[Guid]::NewGuid().ToS
 try {
     & icacls.exe $stageRoot /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel proteger o staging; instalacao cancelada.' }
-    Write-Host 'Baixando e verificando o pacote 2.1.2...'
+    Write-Host 'Baixando e verificando o pacote 2.1.3...'
     $zip=Join-Path $stageRoot 'package.zip'
-    Get-VerifiedArtifact 'https://raw.githubusercontent.com/fromNexz/UFFA/v2.1.2/dist/InfraMonitor-2.1.2.zip' '8be6721819e742823e25bcf98a89e119f0add37d0ae426334c6beda4fa44de03' $zip
+    Get-VerifiedArtifact 'https://raw.githubusercontent.com/fromNexz/UFFA/v2.1.3/dist/InfraMonitor-2.1.3.zip' '213cdf6109a55bdfa88d2306d82b8127b8e96b43517770b1c1918c98aad70967' $zip
     $package=Join-Path $stageRoot 'package'
     Expand-SafePackage $zip $package
     . (Join-Path $package 'scripts/Common.ps1')
     Assert-Admin
     $manifest=Assert-Package $package
-    if ($manifest.version -ne '2.1.2') { throw 'Versao do pacote inesperada.' }
+    if ($manifest.version -ne '2.1.3') { throw 'Versao do pacote inesperada.' }
     . (Join-Path $package 'maintenance/legacy-cleanup/Remover-InfraMonitor-Antigo.ps1')
     $oldServices=@(Get-ServicosAntigos);$oldTasks=@(Get-TarefasAntigas);$oldProcesses=@(Get-ProcessosAntigos)
     if ($oldServices.Count+$oldTasks.Count+$oldProcesses.Count -gt 0) { throw 'Agente antigo ainda possui inicializacoes/processos. Execute a limpeza antiga primeiro. Nenhum arquivo da loja foi modificado.' }
