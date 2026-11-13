@@ -3,6 +3,7 @@
 param([string]$Root='C:\infra-monitor-unificado',[Parameter(Mandatory=$true)][string]$PackageUrl,[Parameter(Mandatory=$true)][string]$PackageSha256,[switch]$EnableRemoteMaintenance)
 . (Join-Path $PSScriptRoot 'Common.ps1')
 . (Join-Path $PSScriptRoot 'Artifacts.ps1')
+. (Join-Path $PSScriptRoot 'UpdateProcesses.ps1')
 Assert-Admin
 $Root=[IO.Path]::GetFullPath($Root).TrimEnd('\')
 if ($Root -notmatch '^[A-Za-z]:\\[^"\r\n]+$' -or !(Test-Path (Join-Path $Root 'config/identity.json')) -or !(Test-Path (Join-Path $Root 'config/agent.json'))) { throw 'Raiz reconhecida com identidade/configuracao obrigatoria; nenhuma alteracao realizada.' }
@@ -28,7 +29,7 @@ try {
 $stamp=[DateTime]::UtcNow.ToString('yyyyMMddTHHmmss')+'-'+[Guid]::NewGuid().ToString('N').Substring(0,8)
 $work=Join-Path $Root "state/update-$stamp";$backup=Join-Path $Root "backups/$stamp"
 [void][IO.Directory]::CreateDirectory($work);[void][IO.Directory]::CreateDirectory($backup);Set-PrivateAcl $Root
-$changed=$false
+$changed=$false;$filesChanged=$false
 try {
     $zip=Join-Path $work 'release.zip';Get-VerifiedArtifact $PackageUrl $PackageSha256 $zip
     $stage=Join-Path $work 'package';Expand-SafePackage $zip $stage
@@ -40,8 +41,9 @@ try {
     Copy-Item -LiteralPath (Join-Path $Root 'config') -Destination (Join-Path $backup 'config') -Recurse
     if (Test-Path (Join-Path $Root 'manifest.json')) { Copy-Item (Join-Path $Root 'manifest.json') (Join-Path $backup 'manifest.json') }
     Set-PrivateAcl $Root
-    Stop-Service InfraMonitorAgent -ErrorAction Stop
     $changed=$true
+    Stop-AgentForUpdate $Root
+    $filesChanged=$true
     Copy-Item -LiteralPath (Join-Path $stage 'bin/InfraMonitor.Agent.exe') -Destination (Join-Path $Root 'bin/InfraMonitor.Agent.exe') -Force
     Copy-Item -LiteralPath (Join-Path $stage 'bin/InfraMonitor.UserTask.exe') -Destination (Join-Path $Root 'bin/InfraMonitor.UserTask.exe') -Force
     if (Test-Path (Join-Path $Root 'scripts')) { Remove-Item (Join-Path $Root 'scripts') -Recurse -Force }
@@ -60,21 +62,26 @@ try {
     Write-Json (Join-Path $Root 'state/last-update.json') @{version=$manifest.version;backup=$backup;completed_at=[DateTime]::UtcNow.ToString('o')}
     Write-Host "Atualizado para $($manifest.version). Identidade e diario preservados; catalogo atualizado somente quando autorizado. Backup: $backup"
 } catch {
+    $updateError=$_
     if ($changed) {
-        Stop-Service InfraMonitorAgent -ErrorAction SilentlyContinue
-        Copy-Item -LiteralPath (Join-Path $backup 'bin/InfraMonitor.Agent.exe') -Destination (Join-Path $Root 'bin/InfraMonitor.Agent.exe') -Force
-        $oldHelper=Join-Path $backup 'bin/InfraMonitor.UserTask.exe'
-        $newHelper=Join-Path $Root 'bin/InfraMonitor.UserTask.exe'
-        if (Test-Path $oldHelper) { Copy-Item -LiteralPath $oldHelper -Destination $newHelper -Force } elseif (Test-Path $newHelper) { Remove-Item -LiteralPath $newHelper -Force }
-        if (Test-Path (Join-Path $backup 'manifest.json')) { Copy-Item (Join-Path $backup 'manifest.json') (Join-Path $Root 'manifest.json') -Force }
-        if (Test-Path (Join-Path $backup 'scripts')) { if (Test-Path (Join-Path $Root 'scripts')) { Remove-Item (Join-Path $Root 'scripts') -Recurse -Force };Copy-Item (Join-Path $backup 'scripts') (Join-Path $Root 'scripts') -Recurse }
-        Copy-Item -LiteralPath (Join-Path $backup 'config/agent.json') -Destination (Join-Path $Root 'config/agent.json') -Force
-        if (Test-Path (Join-Path $Root 'bin/InfraMonitor.UserTask.exe')) { Set-UserTaskPermissions $Root }
-        Start-Service InfraMonitorAgent
-        Wait-AgentHealthy $Root $current
-        Write-Warning 'Rollback executado e heartbeat da versão anterior confirmado.'
+        try {
+            if ($filesChanged) {
+                Stop-AgentForUpdate $Root
+                Copy-Item -LiteralPath (Join-Path $backup 'bin/InfraMonitor.Agent.exe') -Destination (Join-Path $Root 'bin/InfraMonitor.Agent.exe') -Force
+                $oldHelper=Join-Path $backup 'bin/InfraMonitor.UserTask.exe'
+                $newHelper=Join-Path $Root 'bin/InfraMonitor.UserTask.exe'
+                if (Test-Path $oldHelper) { Copy-Item -LiteralPath $oldHelper -Destination $newHelper -Force } elseif (Test-Path $newHelper) { Remove-Item -LiteralPath $newHelper -Force }
+                if (Test-Path (Join-Path $backup 'manifest.json')) { Copy-Item (Join-Path $backup 'manifest.json') (Join-Path $Root 'manifest.json') -Force }
+                if (Test-Path (Join-Path $backup 'scripts')) { if (Test-Path (Join-Path $Root 'scripts')) { Remove-Item (Join-Path $Root 'scripts') -Recurse -Force };Copy-Item (Join-Path $backup 'scripts') (Join-Path $Root 'scripts') -Recurse }
+                Copy-Item -LiteralPath (Join-Path $backup 'config/agent.json') -Destination (Join-Path $Root 'config/agent.json') -Force
+            }
+            if (Test-Path (Join-Path $Root 'bin/InfraMonitor.UserTask.exe')) { Set-UserTaskPermissions $Root }
+            Start-Service InfraMonitorAgent
+            Wait-AgentHealthy $Root $current
+            Write-Warning 'Rollback executado e heartbeat da versão anterior confirmado.'
+        } catch { Write-Warning ("Rollback nao concluido. Backup preservado em $backup. Erro: "+$_.Exception.Message) }
     }
-    throw
+    throw $updateError
 } finally { if (Test-Path $work) { Remove-Item -LiteralPath $work -Recurse -Force } }
 
 } finally { if ($held) { $updateGate.ReleaseMutex() };$updateGate.Dispose() }

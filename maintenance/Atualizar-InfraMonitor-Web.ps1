@@ -64,22 +64,22 @@ $hasIdentity=Test-Path (Join-Path $Root 'config/identity.json')
 if (!(Test-Path -LiteralPath $exe)) { throw 'Executavel do agente nao encontrado. Nao reinstale nem gere tokens por tentativa.' }
 $version=& $exe --version
 if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel identificar a versao do agente existente.' }
-$plan=Get-WebUpdateDecision $version '2.2.0' ($null -ne $service) $hasIdentity
+$plan=Get-WebUpdateDecision $version '2.2.1' ($null -ne $service) $hasIdentity
 if ($plan -eq 'Current') { Write-Host ('Agente ja esta na versao '+$version+' ou superior. Nenhum arquivo, token ou catalogo foi alterado.');return }
 $work=Join-Path $env:ProgramData ('InfraMonitor-UpdateWeb-'+[Guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($work)
 try {
     & icacls.exe $work /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Staging nao protegido. Atualizacao cancelada.' }
-    Write-Host ('Atualizando '+$version+' para 2.2.0. UUID/token e diario serao preservados.')
+    Write-Host ('Atualizando '+$version+' para 2.2.1. UUID/token e diario serao preservados.')
     Write-Host 'O agente anunciara as capacidades PowerShell/CMD no proximo heartbeat.'
-    $url='https://raw.githubusercontent.com/fromNexz/UFFA/v2.2.0/dist/InfraMonitor-2.2.0.zip';$sha='13fad2ffc7fb3b17630f243c8576921290b0571f1530399227576d2e55f33d97'
+    $url='https://raw.githubusercontent.com/fromNexz/UFFA/v2.2.1/dist/InfraMonitor-2.2.1.zip';$sha='401cc8941020e21f495317189e98e91158fba7606969d687bd825b26d06b35b0'
     $zip=Join-Path $work 'package.zip';Get-VerifiedArtifact $url $sha $zip
     $stage=Join-Path $work 'package';Expand-SafePackage $zip $stage
     . (Join-Path $stage 'scripts/Common.ps1')
     Assert-Admin
     $manifest=Assert-Package $stage
-    if ($manifest.version -ne '2.2.0') { throw 'Versao inesperada do pacote.' }
+    if ($manifest.version -ne '2.2.1') { throw 'Versao inesperada do pacote.' }
     & (Join-Path $stage 'scripts/Update.ps1') -Root $Root -PackageUrl $url -PackageSha256 $sha -EnableRemoteMaintenance:(Test-CatalogMigration $version)
     Write-Host 'Atualizacao concluida e heartbeat confirmado. Confira catalogo no painel antes de solicitar acoes.'
 } finally { if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force } }

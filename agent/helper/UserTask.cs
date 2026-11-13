@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using System.Security.Principal;
 namespace Uffa.UserTask {
 public static class RecyclePolicy {
-    public const string Version="2.2.0";
+    public const string Version="2.2.1";
     public static bool AlreadyEmpty(int queryResult,long items){return queryResult>=0&&items==0;}
     public static string Code(int value){return "0x"+unchecked((uint)value).ToString("X8");}
     public static bool ValidArguments(string[] args){return args.Length==2&&args[0]=="--empty-recycle-bin"&&System.Text.RegularExpressions.Regex.IsMatch(args[1],"^S-1-[0-9]+(?:-[0-9]+)+$");}

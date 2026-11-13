@@ -65,3 +65,7 @@ Helper de usuário ativo separado, consulta antes/depois, sucesso idempotente se
 ## 2.2.0 — execucao remota de scripts
 
 81 testes portaveis do agente e 33 de backend/banco passaram. Typecheck e compilacao .NET Framework/C# 5/x86 passaram. Diario de scripts preserva resultados longos e erros sem reexecutar comandos; testes cobrem JSON/texto, timeout, autorizacao e buffer limitado. Suite real Windows adicionada em tests/ScriptExecution.Windows.Tests.ps1; nao executada no ambiente Linux. Job Object, interpretadores e consumo real dependem do piloto Windows. Publicacao GitHub nao equivale a publicar a integracao Lovable; detalhes em SCRIPTS-REMOTOS-2.2.0.md.
+
+## 2.2.1 — parada efetiva antes de substituir binarios
+
+14 testes do novo auxiliar de atualizacao passaram: caminho da instalacao, PID reutilizado, horario de criacao, saida normal, encerramento forcado, reinicio externo e arquivo bloqueado. Processos/SCM simulados; bloqueio de arquivo usa fixture temporaria real. Suites de instalacao/atualizacao e compilacao .NET Framework verificadas antes de publicar. A confirmacao real no Windows segue pendente de piloto.
