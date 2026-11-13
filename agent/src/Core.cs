@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Net;
+using System.Net.Http;
+using System.Threading.Tasks;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -105,6 +107,20 @@ public sealed class Api {
         baseUrl=url.TrimEnd('/');id=Json.Str(identity,"host_id");token=Json.Str(identity,"token");timeout=Math.Max(5,Math.Min(timeoutSeconds,30));
         ServicePointManager.SecurityProtocol=SecurityProtocolType.Tls12;
     }
+    public HttpClient CreatePullClient() {
+        var client=new HttpClient(new HttpClientHandler { AllowAutoRedirect=false, Proxy=WebRequest.DefaultWebProxy, UseProxy=true });
+        client.Timeout=TimeSpan.FromSeconds(35);client.MaxResponseContentBufferSize=1048576;
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        client.DefaultRequestHeaders.Add("X-Host-Id",id);client.DefaultRequestHeaders.Add("X-Host-Token",token);
+        return client;
+    }
+    public Dictionary<string,object> Pull(HttpClient client,CancellationToken cancellation) {
+        using(var response=client.GetAsync(baseUrl+"/agent-pull-config?wait=25",cancellation).GetAwaiter().GetResult()) {
+            if(response.Headers.Date.HasValue)ObserveServerClock(response.Headers.Date.Value.ToString("r"));
+            if(!response.IsSuccessStatusCode)throw new ApiError((int)response.StatusCode);
+            return Json.Obj(Json.Parse(response.Content.ReadAsStringAsync().GetAwaiter().GetResult()));
+        }
+    }
     public Dictionary<string,object> Call(string route,string method,object body=null) {
         for(int attempt=0;attempt<3;attempt++) {
             if(Cancelled!=null&&Cancelled())throw new OperationCanceledException();
@@ -126,6 +142,27 @@ public sealed class Api {
         }
         throw new ApiError(0);
     }
+}
+// One owner, one outstanding request. Commands and collection timers never wait on this worker.
+public sealed class LongPollWorker:IDisposable {
+    readonly CancellationTokenSource cancellation=new CancellationTokenSource();readonly Task worker;
+    public LongPollWorker(Func<CancellationToken,Dictionary<string,object>> pull,Action<Dictionary<string,object>> receive,Action<string> log) {
+        worker=Task.Factory.StartNew(()=>Run(pull,receive,log),CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
+    }
+    public static int RetrySeconds(int status,int failures) {return status==401?60:(int)Math.Min(60,5*Math.Pow(2,Math.Min(4,Math.Max(0,failures-1))));}
+    void Run(Func<CancellationToken,Dictionary<string,object>> pull,Action<Dictionary<string,object>> receive,Action<string> log) {
+        int failures=0;
+        while(!cancellation.IsCancellationRequested) {
+            int status=0;
+            try {var response=pull(cancellation.Token);if(cancellation.IsCancellationRequested)break;receive(response);failures=0;continue;}
+            catch(OperationCanceledException){if(cancellation.IsCancellationRequested)break;log("poll_timeout");}
+            catch(ApiError e){status=e.Status;log("poll_http_"+status+"_"+ApiError.Kind(status));}
+            catch{if(cancellation.IsCancellationRequested)break;log("poll_network_or_contract_error");}
+            failures=Math.Min(5,failures+1);
+            if(cancellation.Token.WaitHandle.WaitOne(RetrySeconds(status,failures)*1000))break;
+        }
+    }
+    public void Dispose(){cancellation.Cancel();worker.GetAwaiter().GetResult();worker.Dispose();cancellation.Dispose();}
 }
 public sealed class Intervals {
     public readonly Dictionary<string,int> Values=new Dictionary<string,int>{{"metrics",3600},{"ips",3600},{"processes",3600},{"poll",60},{"heartbeat",300}};

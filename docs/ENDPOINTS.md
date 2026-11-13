@@ -94,3 +94,9 @@ Diário local persiste intenção antes da ação. Depois de falha entre ação 
 O agente repete apenas erros de rede, 429 e 5xx, com tentativas limitadas. 401/403/404/406 exigem diagnóstico, não substituição automática de token. Logs usam códigos de evento, sem corpos HTTP ou cabeçalhos secretos.
 
 IPs podem definir `interval_seconds` entre 60 e 86400; null usa o intervalo da loja. Datas individuais acompanham cada destino; mudar configuração não provoca novos testes antes do prazo de um destino já coletado.
+
+### Busca de comandos do agente
+
+O agente mantém um único `GET agent-pull-config?wait=25` em um worker dedicado, com `HttpClient.Timeout` de 35 segundos e os headers `X-Host-Id`/`X-Host-Token`. O servidor deve responder quando houver comando ou após aproximadamente 25 segundos com `pending_commands` vazio. Cada resposta renova a busca imediatamente; o executor de comandos não bloqueia o long-poll. Intervalos e IPs continuam validados e aplicados por fingerprint; heartbeat e coletas mantêm seus timers. O intervalo `poll` permanece aceito no contrato/cache por compatibilidade, mas não agenda a busca.
+
+Falhas de rede/5xx aguardam 5, 10, 20, 40 e até 60 segundos; HTTP 401 aguarda 60 segundos. Uma resposta válida reinicia o backoff. O encerramento cancela a requisição e a espera. O backend de referência em `lovable/` ainda precisa implementar a espera de `wait=25` antes de ser usado com este fluxo; respostas vazias imediatas causam renovações imediatas.

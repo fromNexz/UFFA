@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 namespace Uffa.InfraMonitor {
 public sealed class MaintenanceFailure:Exception {
     public MaintenanceFailure(string message):base(message.Length>500?message.Substring(0,500):message){}
@@ -85,13 +86,19 @@ public sealed class RemoteCommandWorker:IDisposable {
     public bool TakeCompleted(){return Interlocked.Exchange(ref completed,0)!=0;}
     void Loop(){
         try{while(true){Item item=null;lock(gate){if(closing)return;if(queue.Count>0)item=queue.Dequeue();}if(item==null){signal.WaitOne();continue;}
+            // Each command has its own Task, run on the existing STA executor to preserve
+            // Windows maintenance apartment requirements and per-agent serialization.
+            Item selected=item;
+            using(var task=new Task(()=>Execute(selected)))task.RunSynchronously(TaskScheduler.Default);
+        }}finally{signal.Dispose();}
+    }
+    void Execute(Item item) {
             try{
                 bool stale=(Stopwatch.GetTimestamp()-item.Received)/(double)Stopwatch.Frequency>300;
                 var record=journal.Execute(item.Command,c=>{if(stale)throw new MaintenanceFailure("Comando aguardou mais de 5 minutos na fila local.");return execute(c);});
                 try{confirm(record);}catch{log("command_result_deferred");}
             }catch{log("command_worker_failed");}
             finally{lock(gate)active.Remove(Json.Str(item.Command,"id"));Interlocked.Exchange(ref completed,1);}
-        }}finally{signal.Dispose();}
     }
     public void Dispose(){lock(gate){if(closing)return;closing=true;signal.Set();}thread.Join(3000);}
 }
