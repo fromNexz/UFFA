@@ -10,7 +10,7 @@ $stage=Join-Path $Output ('package-'+[Guid]::NewGuid().ToString('N'))
 try {
     $exe=Join-Path $stage 'bin/InfraMonitor.Agent.exe'
     $sources=@(Get-ChildItem (Join-Path $Repository 'agent/src/*.cs')|ForEach-Object FullName)
-    & $csc /nologo /optimize+ /target:exe /platform:x86 /r:System.Web.Extensions.dll /r:System.Management.dll /r:System.ServiceProcess.dll ("/out:$exe") @sources
+    & $csc /nologo /optimize+ /target:exe /platform:x86 /r:System.Net.Http.dll /r:System.Web.Extensions.dll /r:System.Management.dll /r:System.ServiceProcess.dll ("/out:$exe") @sources
     if ($LASTEXITCODE -ne 0) { throw 'Compilação falhou.' }
     $userExe=Join-Path $stage 'bin/InfraMonitor.UserTask.exe'
     & $csc /nologo /optimize+ /target:exe /platform:x86 ("/out:$userExe") (Join-Path $Repository 'agent/helper/UserTask.cs')
