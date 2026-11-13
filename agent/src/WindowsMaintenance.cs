@@ -16,7 +16,7 @@ public static class WindowsMaintenance {
     }
     sealed class AppProcess {internal int Id,Session;internal string Path,Name,Created;}
     public static string Operate(object[] catalog,Dictionary<string,object>command,Func<bool>cancelled,Func<DateTime>trustedUtc,Func<bool>clockReliable) {
-        var t=MaintenancePolicy.Authorize(catalog,command);var deadline=new Deadline(cancelled);deadline.Check();string id=Json.Str(t,"id");
+        var t=MaintenancePolicy.Authorize(catalog,command);if(ScriptExecution.IsTarget(Json.Str(t,"id")))return ScriptExecution.Execute(command,cancelled);var deadline=new Deadline(cancelled);deadline.Check();string id=Json.Str(t,"id");
         if(id=="system_cleanup"){if(!clockReliable())throw new MaintenanceFailure("Limpeza bloqueada: relogio local diverge do servidor ou sem referencia HTTPS de hora; corrija antes de apagar temporarios.");return Cleanup(deadline,trustedUtc);}
         return ProcessAction(t,Json.Str(command,"operation"),deadline,id=="rustdesk");
     }

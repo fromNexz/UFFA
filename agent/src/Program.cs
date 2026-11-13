@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 namespace Uffa.InfraMonitor {
 public static class Program {
-    public const string Version="2.1.3";
+    public const string Version="2.2.0";
     static volatile bool stop;
     public static int Main(string[] args) {
         if(Array.IndexOf(args,"--service")>=0)return WindowsServiceHost.Run(args);
@@ -29,7 +29,7 @@ public static class Program {
         var log=new AgentLog(root);var api=new Api(Json.Str(cfg,"api_base_url"),identity,Json.Int(cfg,"http_timeout_seconds",15));
         api.Cancelled=()=>stop;
         var intervals=new Intervals();intervals.Apply(Json.Obj(cfg["intervals"]));
-        var journal=new CommandJournal(root,host.ToString(),()=>api.ClockUtc);object[] catalog=Json.Array(cfg,"catalog"),ips=new object[0];
+        var journal=new CommandJournal(root,host.ToString(),()=>api.ClockUtc);object[] catalog=ScriptExecution.WithCatalog(Json.Array(cfg,"catalog")),ips=new object[0];
         var clock=Stopwatch.StartNew();var next=new Dictionary<string,double>{{"poll",0},{"heartbeat",0},{"metrics",0},{"processes",0},{"ips",0},{"flush",0},{"memory",10}};
         Task worker=null;bool configured=false;int failures=0;
         var ipReadings=new Dictionary<string,object>();var ipStamps=new Dictionary<string,double>();

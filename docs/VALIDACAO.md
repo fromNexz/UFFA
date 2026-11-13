@@ -61,3 +61,7 @@ Helper de usuário ativo separado, consulta antes/depois, sucesso idempotente se
 ## 2.1.3 — transicoes de servicos e diagnostico
 
 67 testes portaveis passaram, incluindo transicoes SCM simuladas, timeout, parada nao aceita, corrida de estado final e preservacao de codigo Win32 interno sem mensagens sensiveis. Agente e helper compilados para C# 5 / .NET Framework 4.7.2 / x86. Validacao real SCM/WTS/RustDesk pendente de uma loja Windows; o erro anterior sem etapa/codigo nao permite atribuir a causa com certeza.
+
+## 2.2.0 — execucao remota de scripts
+
+81 testes portaveis do agente e 33 de backend/banco passaram. Typecheck e compilacao .NET Framework/C# 5/x86 passaram. Diario de scripts preserva resultados longos e erros sem reexecutar comandos; testes cobrem JSON/texto, timeout, autorizacao e buffer limitado. Suite real Windows adicionada em tests/ScriptExecution.Windows.Tests.ps1; nao executada no ambiente Linux. Job Object, interpretadores e consumo real dependem do piloto Windows. Publicacao GitHub nao equivale a publicar a integracao Lovable; detalhes em SCRIPTS-REMOTOS-2.2.0.md.

@@ -58,7 +58,7 @@ async function handle(req:Request,route:string):Promise<unknown>{
  }
  if(route==='agent-heartbeat'&&req.method==='POST'){
   const b=await body(req);if(b.schema_version!==2)throw new HttpError(406,'schema_version=2 obrigatório');stamp(b.at);
-  if(!Array.isArray(b.catalog)||b.catalog.length>64)throw new HttpError(400,'Catálogo inválido');
+  if(!Array.isArray(b.catalog)||b.catalog.length>66)throw new HttpError(400,'Catálogo inválido');
   for(const t of b.catalog){if(!/^[a-zA-Z0-9_-]{1,64}$/.test(t.id)||!['service','process'].includes(t.kind)||!Array.isArray(t.allowed_operations)||t.allowed_operations.some((o:string)=>!['start','stop','restart','kill'].includes(o))||typeof t.allow_force!=='boolean')throw new HttpError(400,'Catálogo inválido');}
   for(const k of ['working_set_bytes','private_bytes'])if(!Number.isFinite(b[k])||b[k]<0)throw new HttpError(400,'Memória inválida');
   checked(await db.from('im_hosts').update({last_seen_at:new Date().toISOString(),agent_version:text(b.agent_version,1,32),catalog:b.catalog,agent_health:{working_set_bytes:b.working_set_bytes,private_bytes:b.private_bytes}}).eq('id',host.id));return {ok:true};

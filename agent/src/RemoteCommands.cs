@@ -53,10 +53,11 @@ public static class MaintenancePolicy {
         if(id=="frcaixa") {if(!Json.Bool(t,"remote_control_enabled"))throw new MaintenanceFailure("FrCaixa configurado somente para monitoramento.");if(op!="start"&&op!="stop"&&op!="restart"&&op!="kill")throw new MaintenanceFailure("Operacao FrCaixa invalida.");FullLocalExe(Json.Str(t,"executable"));if(op=="kill"&&!Json.Bool(t,"allow_force"))throw new MaintenanceFailure("Encerramento forcado nao autorizado.");}
         else if(id=="rustdesk") {if(!String.Equals(Json.Str(t,"executable"),RustDeskPath,StringComparison.OrdinalIgnoreCase))throw new MaintenanceFailure("Caminho RustDesk diverge do caminho fixo autorizado.");if(op!="start"&&op!="stop"&&op!="restart"&&op!="kill")throw new MaintenanceFailure("Operacao RustDesk invalida.");if(!Json.Bool(t,"allow_force"))throw new MaintenanceFailure("Reinicio RustDesk exige allow_force local.");}
         else if(id=="system_cleanup") {if(op!="start")throw new MaintenanceFailure("Limpeza aceita somente start.");}
+        else if(ScriptExecution.IsTarget(id)){if(op!="start")throw new MaintenanceFailure("Execucao de script aceita somente start.");}
         else throw new MaintenanceFailure("Alvo de manutencao desconhecido.");return t;
     }
     public static Dictionary<string,object> BindCommand(Dictionary<string,object>remote,string hostId,DateTime? now=null) {
-        var c=new Dictionary<string,object>();foreach(string key in new[]{"id","host_id","target_id","operation","expires_at"})if(remote.ContainsKey(key))c[key]=remote[key];Guid id;if(!Guid.TryParse(Json.Str(c,"id"),out id))throw new InvalidDataException("ID de comando invalido.");
+        var c=new Dictionary<string,object>();foreach(string key in new[]{"id","host_id","target_id","operation","expires_at","reason"})if(remote.ContainsKey(key))c[key]=remote[key];Guid id;if(!Guid.TryParse(Json.Str(c,"id"),out id))throw new InvalidDataException("ID de comando invalido.");
         string destination=Json.Str(c,"host_id");if(destination!=""&&!destination.Equals(hostId,StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("Comando de outro host.");
         // Called only for the authenticated, host-scoped HTTPS pull response. Never for arbitrary input.
         c["host_id"]=hostId;c["id"]=id.ToString();

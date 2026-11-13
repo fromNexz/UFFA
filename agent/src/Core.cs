@@ -148,8 +148,9 @@ public sealed class CommandJournal {
         try {
             DateTime expiry;if(!DateTime.TryParse(Json.Str(cmd,"expires_at"),CultureInfo.InvariantCulture,DateTimeStyles.AdjustToUniversal|DateTimeStyles.AssumeUniversal,out expiry)||expiry<=utcNow())throw new MaintenanceFailure("Comando expirado ou prazo invalido; nenhuma acao executada.");
             record["message"]=action(cmd);record["result"]="ok";
-        } catch(MaintenanceFailure e){record["message"]=e.Message;record["result"]="error";} catch(Exception e) {record["message"]="Operacao falhou ("+e.GetType().Name+"). Verifique catalogo, sessao e acesso local.";record["result"]="error";}
-        if(Convert.ToString(record["message"]).Length>500)record["message"]=Convert.ToString(record["message"]).Substring(0,500);
+        } catch(ScriptResultFailure e){record["message"]=e.Message;record["result"]="error";} catch(MaintenanceFailure e){record["message"]=e.Message;record["result"]="error";} catch(Exception e) {record["message"]="Operacao falhou ("+e.GetType().Name+"). Verifique catalogo, sessao e acesso local.";record["result"]="error";}
+        int limit=ScriptExecution.IsTarget(Json.Str(cmd,"target_id"))?2000:500;
+        if(Convert.ToString(record["message"]).Length>limit)record["message"]=Convert.ToString(record["message"]).Substring(0,limit);
         record["state"]="completed";record["completed_at"]=Disk.Now();Disk.Write(path,record);lock(pendingGate)pending.Add(id);return record;
     }
     Dictionary<string,object> Recover(string path) {

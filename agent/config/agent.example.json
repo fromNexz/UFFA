@@ -49,6 +49,22 @@
       ],
       "allow_force": false,
       "health_tcp_port": null
+    },
+    {
+      "id": "powershell",
+      "kind": "process",
+      "allowed_operations": [
+        "start"
+      ],
+      "allow_force": false
+    },
+    {
+      "id": "cmd",
+      "kind": "process",
+      "allowed_operations": [
+        "start"
+      ],
+      "allow_force": false
     }
   ]
 }
