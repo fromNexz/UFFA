@@ -120,7 +120,7 @@ public static class Program {
     }
     static Dictionary<string,object> ToObjects(Dictionary<string,int> values) {var result=new Dictionary<string,object>();foreach(var pair in values)result[pair.Key]=pair.Value;return result;}
     static object CatalogSummary(object[] catalog) {
-        var summary=new List<object>();foreach(object o in catalog){var t=Json.Obj(o);summary.Add(new {id=Json.Str(t,"id"),kind=Json.Str(t,"kind"),allowed_operations=Json.Array(t,"allowed_operations"),allow_force=Json.Bool(t,"allow_force")});}return summary;
+        var summary=new List<object>();foreach(object o in catalog){var t=Json.Obj(o);summary.Add(new {id=Json.Str(t,"id"),kind=Json.Str(t,"kind"),allowed_operations=Json.Array(t,"allowed_operations"),supported_operations=Json.Array(t,"allowed_operations"),allow_force=Json.Bool(t,"allow_force")});}return summary;
     }
 }
 }

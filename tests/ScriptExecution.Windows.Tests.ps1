@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 [CmdletBinding()]
 param([Parameter(Mandatory=$true)][string]$AgentExe)
 $ErrorActionPreference='Stop'
@@ -33,6 +33,20 @@ try {
     Check 'Working directory honored' ($r.Code -eq 0 -and $r.Output.Trim() -eq $work)
     $missing=$false;try { Run 'cmd' 'echo test' 10 (Join-Path $work 'missing')|Out-Null } catch { $missing=$true }
     Check 'Invalid directory fails before process launch' $missing
+    # Safe fixtures only: never download or run the real cleanup during these tests.
+    $capture=New-Object Uffa.InfraMonitor.CleanupOutput
+    $request=[Uffa.InfraMonitor.SystemCleanup]::Request()
+    $request.Timeout=10
+    $request.Script='[Console]::Out.Write("ação`n"+("x"*200000)+"`n[OTM_RESULT] STATUS=OK | LIBERADO_MB=123 | LIVRE_ATUAL_GB=45.5 | TEMPO_SEG=2")'
+    $r=[Uffa.InfraMonitor.NativeScriptRunner]::Run($request,[Func[bool]]{return $false},[Action[char[],int]]{param($chars,$length) $capture.AppendOutput($chars,$length)},[Action[char[],int]]{param($chars,$length) $capture.AppendError($chars,$length)})
+    $capture.Finish()
+    Check 'Cleanup stdout observer retains terminal record after long UTF8 output' ($r.Code -eq 0 -and $capture.ResultLine -eq '[OTM_RESULT] STATUS=OK | LIBERADO_MB=123 | LIVRE_ATUAL_GB=45.5 | TEMPO_SEG=2' -and $capture.Error.Contains('ação'))
+    $capture=New-Object Uffa.InfraMonitor.CleanupOutput
+    $request.Timeout=2
+    $request.Script='[Console]::Out.WriteLine("[OTM_RESULT] STATUS=TIMEOUT | LIBERADO_MB=0 | LIVRE_ATUAL_GB=1 | TEMPO_SEG=1"); [Console]::Error.WriteLine("diagnóstico"); Start-Sleep -Seconds 30'
+    $r=[Uffa.InfraMonitor.NativeScriptRunner]::Run($request,[Func[bool]]{return $false},[Action[char[],int]]{param($chars,$length) $capture.AppendOutput($chars,$length)},[Action[char[],int]]{param($chars,$length) $capture.AppendError($chars,$length)})
+    $capture.Finish()
+    Check 'Cleanup timeout preserves stdout record and separate UTF8 stderr' ($r.TimedOut -and $capture.ResultLine.Contains('STATUS=TIMEOUT') -and $capture.Error.Contains('diagnóstico'))
     $pidFile=Join-Path $work 'child.pid';$escaped=$pidFile.Replace("'","''")
     $code='$p=Start-Process powershell.exe -ArgumentList ''-NoProfile -NonInteractive -Command Start-Sleep -Seconds 30'' -PassThru; [IO.File]::WriteAllText('''+$escaped+''',[string]$p.Id); Start-Sleep -Seconds 30'
     $r=Run 'powershell' $code 5
