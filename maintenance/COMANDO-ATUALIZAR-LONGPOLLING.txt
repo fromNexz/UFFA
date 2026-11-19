@@ -1,0 +1,13 @@
+# PowerShell como administrador. Atualiza o agente e o helper, sem recadastro.
+& {
+    $ErrorActionPreference = 'Stop'
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $arquivo = Join-Path $env:TEMP ("atualizar-infra-" + [guid]::NewGuid() + ".ps1")
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/fromNexz/UFFA/codex/agent-command-long-poll/maintenance/Atualizar-LongPolling.ps1' -OutFile $arquivo
+        if ((Get-FileHash $arquivo -Algorithm SHA256).Hash -ne 'd5b4786635d32cce115d109945df5a471eb9796d679c7855f5843b8af9d2fb14') { throw 'Integridade invalida. Atualizacao cancelada.' }
+        Unblock-File $arquivo
+        powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $arquivo
+        if ($LASTEXITCODE -ne 0) { throw 'Atualizacao interrompida; confira a mensagem acima.' }
+    } finally { Remove-Item $arquivo -Force -ErrorAction SilentlyContinue }
+}

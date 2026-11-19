@@ -1,0 +1,9 @@
+# Atualizar lojas para long-polling (2.2.2)
+
+Execute o bloco de `maintenance/COMANDO-ATUALIZAR-LONGPOLLING.txt` em Windows PowerShell 5.1 como administrador. Ele baixa o script RAW, verifica o SHA256 e o executa. O script usa `C:\infra-monitor-unificado` por padrao; para outro diretorio, informe `-Root 'D:\pasta-do-agente'` na chamada ao script baixado.
+
+O script `maintenance/Atualizar-LongPolling.ps1` verifica a instalacao existente e testa o backend autenticado com `wait=25` e timeout de 35 segundos, antes de parar o agente. Uma resposta vazia precisa aguardar pelo menos 20 segundos. Se o servidor ainda responder imediatamente, a atualizacao e cancelada sem substituir arquivos. Se houver comandos pendentes, o teste tenta novamente ate tres vezes; a fila nao e confirmada nem executada pelo teste. Aguarde o agente concluir a fila e repita se necessario.
+
+O pacote 2.2.2 possui SHA256 fixado no script. A atualizacao reutiliza `scripts/Update.ps1`: valida manifesto, cria backup, interrompe somente processos reconhecidos da instalacao, substitui agente/helper/scripts e confirma heartbeat autenticado. Se a atualizacao falhar depois da parada, tenta restaurar o backup e iniciar a versao anterior. Identidade, token e diario sao preservados. O catalogo segue as mesmas regras do atualizador existente: somente versoes anteriores a 2.1.0 recebem sua migracao de manutencao.
+
+O script e o pacote estao na branch `codex/agent-command-long-poll`, revisaveis no PR #1. A tag antiga `v2.2.1` nao foi alterada. O backend de referencia ainda nao implementa a espera: publique o suporte no servidor antes de atualizar as lojas. Nao houve execucao nas lojas nem validacao de SCM/heartbeat em Windows neste ambiente Linux; houve compilacao para .NET Framework 4.7.2/x86, testes portaveis e verificacao integral do manifesto do ZIP.
