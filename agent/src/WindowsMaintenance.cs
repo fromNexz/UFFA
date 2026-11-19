@@ -16,8 +16,9 @@ public static class WindowsMaintenance {
     }
     sealed class AppProcess {internal int Id,Session;internal string Path,Name,Created;}
     public static string Operate(object[] catalog,Dictionary<string,object>command,Func<bool>cancelled,Func<DateTime>trustedUtc,Func<bool>clockReliable) {
-        var t=MaintenancePolicy.Authorize(catalog,command);if(ScriptExecution.IsTarget(Json.Str(t,"id")))return ScriptExecution.Execute(command,cancelled);var deadline=new Deadline(cancelled);deadline.Check();string id=Json.Str(t,"id");
-        if(id=="system_cleanup"){if(!clockReliable())throw new MaintenanceFailure("Limpeza bloqueada: relogio local diverge do servidor ou sem referencia HTTPS de hora; corrija antes de apagar temporarios.");return Cleanup(deadline,trustedUtc);}
+        var t=MaintenancePolicy.Authorize(catalog,command);if(ScriptExecution.IsTarget(Json.Str(t,"id")))return ScriptExecution.Execute(command,cancelled);
+        string id=Json.Str(t,"id");if(id=="system_cleanup")return SystemCleanup.Execute(cancelled);
+        var deadline=new Deadline(cancelled);deadline.Check();
         return ProcessAction(t,Json.Str(command,"operation"),deadline,id=="rustdesk");
     }
     static List<Dictionary<string,object>> Query(string query,params string[] fields) {return WindowsPlatform.Query(query,fields);}
@@ -77,51 +78,6 @@ public static class WindowsMaintenance {
             throw new MaintenanceFailure("Falha ao validar inicializacao do "+(rust?"RustDesk":"FrCaixa")+" apos 8 segundos.");
         }catch(MaintenanceFailure e){throw new MaintenanceFailure("Etapa "+stage+": "+e.Message);}catch(Exception e){throw new MaintenanceFailure(MaintenancePolicy.ActionFailure(operation,stage,e));}
         finally{if(session!=null)session.Dispose();}
-    }
-    static string Cleanup(Deadline time,Func<DateTime>trustedUtc) {
-        var os=Query("SELECT ProductType,Version FROM Win32_OperatingSystem","ProductType","Version")[0];
-        if(Json.Int(os,"ProductType",0)!=1||!Json.Str(os,"Version").StartsWith("10.",StringComparison.Ordinal))throw new MaintenanceFailure("Limpeza automatica requer Windows 10/11; servidor nao foi alterado.");
-        long before=new DriveInfo(@"C:\").AvailableFreeSpace,deleted=0;int skipped=0,files=0,seen=0;bool bounded=false;var warnings=new List<string>();NativeWindows.UserSession user=null;
-        try{
-            try{user=new NativeWindows.UserSession();}catch(MaintenanceFailure e){warnings.Add("sessao indisponivel: "+e.Message);}
-            var roots=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"Temp"));
-            string agentTemp=Path.GetFullPath(Path.GetTempPath()).TrimEnd('\\');
-            // LocalSystem TEMP may be Windows\Temp or its profile's AppData\Local\Temp, never an arbitrary drive root.
-            if(agentTemp.EndsWith(@"\AppData\Local\Temp",StringComparison.OrdinalIgnoreCase)||agentTemp.Equals(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"Temp"),StringComparison.OrdinalIgnoreCase))roots.Add(agentTemp);
-            if(user!=null)roots.Add(Path.Combine(user.Profile,@"AppData\Local\Temp"));
-            DateTime now=trustedUtc();var scanTime=Stopwatch.StartNew();
-            foreach(string root in roots){time.Check();if(!Directory.Exists(root))continue;
-                try{using(var rootHandle=NativeWindows.OpenTempRoot(root)){
-                    string physical=NativeWindows.FinalPath(rootHandle);if(!physical.Equals(MaintenancePolicy.NormalPath(Path.GetFullPath(root)),StringComparison.OrdinalIgnoreCase)){warnings.Add("TEMP com redirecionamento preservado");continue;}
-                    var stack=new Stack<string>();stack.Push(root);
-                    while(stack.Count>0){time.Check();if(seen>=20000||scanTime.Elapsed.TotalSeconds>100){bounded=true;break;}
-                        string directory=stack.Pop();try{foreach(string path in Directory.EnumerateFileSystemEntries(directory)){time.Check();seen++;if(seen>20000){bounded=true;break;}
-                            try{var attr=File.GetAttributes(path);if((attr&FileAttributes.ReparsePoint)!=0){skipped++;continue;}if((attr&FileAttributes.Directory)!=0){if(stack.Count<512)stack.Push(path);else bounded=true;continue;}
-                                long bytes=NativeWindows.DeleteOldTempFile(path,physical,now);if(bytes>=0){deleted+=bytes;files++;}else skipped++;
-                            }catch(IOException){skipped++;}catch(UnauthorizedAccessException){skipped++;}
-                        }}catch(IOException){skipped++;}catch(UnauthorizedAccessException){skipped++;}
-                    }
-                }}catch(MaintenanceFailure){warnings.Add("TEMP inacessivel ou link preservado");}
-            }
-            if(bounded)warnings.Add("varredura limitada a 20 mil entradas/100s");
-            time.Check();if(user!=null){try{user.EmptyRecycleBin(()=>time.Check());}catch(MaintenanceFailure e){warnings.Add(e.Message);}catch(Exception e){warnings.Add("Lixeira: falha "+e.GetType().Name+".");}}
-            time.Check();bool trim=RunTrim(time);if(!trim)warnings.Add("TRIM nao confirmado/nao suportado");
-            double mb=Math.Max(0,(new DriveInfo(@"C:\").AvailableFreeSpace-before)/1048576.0);
-            string result="Limpeza: "+files+" temporarios antigos removidos ("+(deleted/1048576.0).ToString("0.00",CultureInfo.InvariantCulture)+" MB); "+skipped+" itens preservados. C: "+mb.ToString("0.00",CultureInfo.InvariantCulture)+" MB livres adicionais (estimativa). TRIM "+(trim?"concluido":"nao confirmado")+".";
-            if(warnings.Count>0)throw new MaintenanceFailure(result+" Parcial: "+String.Join("; ",warnings)+".");return result;
-        }finally{if(user!=null)user.Dispose();}
-    }
-    static bool RunTrim(Deadline time) {
-        if(!NativeWindows.TrimSupported())return false;
-        string windows=Environment.GetFolderPath(Environment.SpecialFolder.Windows);string tool=Path.Combine(windows,Environment.Is64BitOperatingSystem&&!Environment.Is64BitProcess?@"Sysnative\defrag.exe":@"System32\defrag.exe");
-        if(!File.Exists(tool))return false;
-        using(var p=new Process()){
-            p.StartInfo=new ProcessStartInfo(tool,"C: /L /U /V"){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};p.OutputDataReceived+=(s,e)=>{};p.ErrorDataReceived+=(s,e)=>{};
-            p.Start();try{p.PriorityClass=ProcessPriorityClass.BelowNormal;}catch(InvalidOperationException){}catch(System.ComponentModel.Win32Exception){}p.BeginOutputReadLine();p.BeginErrorReadLine();var wait=Stopwatch.StartNew();
-            try{while(!p.WaitForExit(200)){time.Check();if(wait.Elapsed.TotalSeconds>150){p.Kill();p.WaitForExit(5000);return false;}}p.WaitForExit();return p.ExitCode==0;}
-            catch{if(!p.HasExited){p.Kill();p.WaitForExit(5000);}throw;}
-        }
     }
 }
 }
