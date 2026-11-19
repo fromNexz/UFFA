@@ -4,7 +4,7 @@ $source=@('agent/src/Core.cs','agent/src/RemoteCommands.cs','agent/src/ScriptExe
 if ($PSVersionTable.PSEdition -eq 'Core') {
     $refs=@(Get-ChildItem (Join-Path $PSHOME 'ref/*.dll')|ForEach-Object FullName)
     Add-Type -Path $source -ReferencedAssemblies $refs -CompilerOptions @('/define:PORTABLE_TEST','/nowarn:SYSLIB0014') -ErrorAction Stop
-} else { Add-Type -Path $source -ReferencedAssemblies System.Web.Extensions,System.Core }
+} else { Add-Type -Path $source -ReferencedAssemblies System.Web.Extensions,System.Core,System.Net.Http }
 $work=Join-Path ([IO.Path]::GetTempPath()) ('uffa-tests-'+[Guid]::NewGuid().ToString('N'))
 try { $results=[AgentTests]::Run($work);foreach ($r in $results) { Write-Host "PASS $r" };Write-Host "$($results.Length) testes passaram; chamadas Windows substituídas por doubles que lançam erro." }
 finally { if (Test-Path $work) { Remove-Item $work -Recurse -Force } }
