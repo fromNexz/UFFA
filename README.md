@@ -1,4 +1,4 @@
-# Infra Monitor UFFA 2.2.1
+# Infra Monitor UFFA 2.2.3
 
 Nova implementação para monitorar lojas Windows e receber operações administrativas por consulta HTTPS. Desenvolvida a partir da documentação Lovable fornecida, sem os códigos antigos. Não aplica alterações no banco ou nos servidores automaticamente.
 
@@ -85,3 +85,5 @@ Correcao de transicoes e diagnostico de reinicio 2.1.3: [detalhes](docs/REINICIO
 Execucao remota PowerShell/CMD 2.2.0: [contrato, exemplos e validacao](docs/SCRIPTS-REMOTOS-2.2.0.md).
 
 Correcao da substituicao de executavel em uso: [atualizacao 2.2.1](docs/ATUALIZACAO-2.2.1.md).
+
+Atualizacao 2.2.3: limpeza pelo RAW oficial com resumo OTM, long-polling dedicado e pacote verificavel. Veja [instrucoes](docs/ATUALIZACAO-2.2.3.md).
